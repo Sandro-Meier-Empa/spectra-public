@@ -23,8 +23,9 @@ from spectra.geometry.corners import (
     outline_polygon,
 )
 from spectra.geometry.placement import PlacedColumn, place_column
+from spectra.geometry.swath import window_nodes
 from spectra.geometry.transform import transform_coordinates
-from spectra.regrid.base import RegridResult, check_mass, target_window_nodes
+from spectra.regrid.base import RegridResult, check_mass
 from spectra.regrid.results import finalize_result, map_data_array, scene_data_array
 from spectra.regrid.windows import (
     anchor_pixel_centre,
@@ -233,7 +234,7 @@ class BucketRegridder:
         indexer = {dim_across: window.across, dim_along: window.along}
         centre_x = np.asarray(geometry.x.isel(indexer).values, dtype=np.float64)
         centre_y = np.asarray(geometry.y.isel(indexer).values, dtype=np.float64)
-        node_x, node_y = target_window_nodes(geometry, window)
+        node_x, node_y = window_nodes(geometry, window)
         values, target_area, inside, target_mass = self._regrid(
             placed, centre_x, centre_y, node_x, node_y
         )

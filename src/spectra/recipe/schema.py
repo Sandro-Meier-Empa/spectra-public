@@ -22,6 +22,7 @@ from typing import Any, cast, get_type_hints
 import yaml
 
 from spectra.contracts.errors import ContractError
+from spectra.export.pairings import GROUP_COLUMNS
 from spectra.types import ANCHOR_CORNERS, FLIPS
 
 RECIPE_VERSION = 1
@@ -34,7 +35,6 @@ ROTATION_MODES: tuple[str, ...] = ("uniform_int", "fixed", "list")
 RADIANCE_LEGS: tuple[str, ...] = ("solar", "view", "both")
 STATISTICS_SCOPES: tuple[str, ...] = ("window", "full_scene", "cached_scene")
 PRODUCT_FORMATS: tuple[str, ...] = ("netcdf", "zarr")
-GROUP_COLUMNS: tuple[str, ...] = ("background_group", "les_case")
 # Recipe keys holding paths that are resolved relative to the recipe file.
 _PATH_KEYS: tuple[tuple[str, ...], ...] = (
     ("sensor", "scenes"),

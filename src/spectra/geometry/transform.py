@@ -76,15 +76,6 @@ def transform_coordinates(
     )
 
 
-def translate(
-    x: npt.ArrayLike, y: npt.ArrayLike, offset: tuple[float, float]
-) -> tuple[np.ndarray, np.ndarray]:
-    """Shift coordinates by ``offset``."""
-    return np.asarray(x, dtype=float) + offset[0], np.asarray(y, dtype=float) + offset[
-        1
-    ]
-
-
 def anchor_cell_centre(
     x: npt.ArrayLike, y: npt.ArrayLike, corner: AnchorCorner
 ) -> tuple[float, float]:
@@ -155,7 +146,6 @@ __all__ = [
     "anchor_cell_centre",
     "support_vertices",
     "transform_coordinates",
-    "translate",
     "validate_flip",
     "validate_rotation",
     "vertices_bounds",

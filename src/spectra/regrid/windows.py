@@ -12,18 +12,15 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from shapely.geometry import Polygon
 
 from spectra.contracts.errors import ContractError
 from spectra.geometry.corners import (
     axis_nodes,
     cell_areas,
     nodes_to_cell_vertices,
-    outline_polygon,
-    require_finite,
 )
 from spectra.geometry.placement import PlacedColumn
-from spectra.regrid.base import target_window_nodes
+from spectra.geometry.swath import anchor_pixel_spacing, swath_polygon, window_polygon
 from spectra.types import MapGrid, Placement, SceneGeometry, Window
 
 # Number of pixel centres loaded by the coarse pass of ``support_window``.
@@ -77,62 +74,6 @@ def anchor_pixel_centre(
             f"Anchor pixel (across={across}, along={along}) has no finite centre."
         )
     return centre
-
-
-def anchor_pixel_spacing(geometry: SceneGeometry, across: int, along: int) -> float:
-    """Return the largest centre spacing in the 2x2 neighbourhood of a pixel.
-
-    Mirrors ``aviris4_ch4.regridding._anchor_pixel_spacing``.
-    """
-    n_across, n_along = _require_pixel_pairs(geometry)
-    if not 0 <= across < n_across or not 0 <= along < n_along:
-        raise ContractError("Pixel index lies outside the scene.")
-    across0 = across if across + 1 < n_across else across - 1
-    along0 = along if along + 1 < n_along else along - 1
-    x, y = _block(geometry, slice(across0, across0 + 2), slice(along0, along0 + 2))
-    spacing = max(
-        float(np.hypot(np.diff(x, axis=0), np.diff(y, axis=0)).max()),
-        float(np.hypot(np.diff(x, axis=1), np.diff(y, axis=1)).max()),
-    )
-    if not math.isfinite(spacing) or spacing <= 0:
-        raise ContractError("Pixel spacing at the anchor is not positive.")
-    return spacing
-
-
-def swath_outline(geometry: SceneGeometry) -> Polygon:
-    """Return the outer pixel-boundary polygon of the whole scene.
-
-    Only the two outermost rows and columns of pixel centres are loaded; the
-    edge nodes are extrapolated from them exactly as
-    :func:`spectra.geometry.corners.cell_corner_nodes` does for the full grid.
-    """
-    n_across, n_along = _require_pixel_pairs(geometry)
-    rings: list[np.ndarray] = []
-    for axis_index in (0, 1):
-        top_strip = _block(geometry, slice(0, 2), slice(0, n_along))[axis_index]
-        bottom_strip = _block(
-            geometry, slice(n_across - 2, n_across), slice(0, n_along)
-        )[axis_index]
-        left_strip = _block(geometry, slice(0, n_across), slice(0, 2))[axis_index]
-        right_strip = _block(geometry, slice(0, n_across), slice(n_along - 2, n_along))[
-            axis_index
-        ]
-        top = axis_nodes(axis_nodes(top_strip, axis=1), axis=0)[0]
-        bottom = axis_nodes(axis_nodes(bottom_strip, axis=1), axis=0)[-1]
-        left = axis_nodes(axis_nodes(left_strip, axis=0), axis=1)[:, 0]
-        right = axis_nodes(axis_nodes(right_strip, axis=0), axis=1)[:, -1]
-        rings.append(np.concatenate((top, right[1:], bottom[-2::-1], left[-2:0:-1])))
-    require_finite(*rings)
-    polygon = Polygon(zip(rings[0], rings[1], strict=True))
-    if polygon.is_empty or not polygon.is_valid or polygon.area <= 0:
-        raise ContractError("Scene pixel boundaries form an invalid swath polygon.")
-    return polygon
-
-
-def window_outline(geometry: SceneGeometry, window: Window) -> Polygon:
-    """Return the outer pixel-boundary polygon of an index window."""
-    node_x, node_y = target_window_nodes(geometry, window)
-    return outline_polygon(node_x, node_y)
 
 
 def _coarse_strides(n_across: int, n_along: int) -> tuple[int, int]:
@@ -223,13 +164,15 @@ def support_window(
     if margin_px < 0:
         raise ContractError("margin_px must be non-negative.")
     n_across, n_along = _require_pixel_pairs(geometry)
-    swath = swath_outline(geometry)
+    swath = swath_polygon(geometry)
     support = placed.support_polygon
     region = support if swath.covers(support) else swath.intersection(support)
     if region.is_empty or region.area <= 0:
         raise ContractError("The placed support does not overlap the scene.")
     spacing = anchor_pixel_spacing(
-        geometry, placed.placement.anchor_across, placed.placement.anchor_along
+        geometry,
+        along=placed.placement.anchor_along,
+        across=placed.placement.anchor_across,
     )
     xmin, ymin, xmax, ymax = region.bounds
     box = (xmin - spacing, ymin - spacing, xmax + spacing, ymax + spacing)
@@ -250,7 +193,7 @@ def support_window(
         ),
     )
     target_area = region.area * (1.0 - _COVER_RTOL)
-    while window_outline(geometry, window).intersection(region).area < target_area:
+    while window_polygon(geometry, window).intersection(region).area < target_area:
         grown = _grow(window, (n_across, n_along), 1)
         if grown == window:
             break
@@ -332,12 +275,9 @@ def map_window_cells(
 
 __all__ = [
     "anchor_pixel_centre",
-    "anchor_pixel_spacing",
     "map_anchor_centre",
     "map_window",
     "map_window_cells",
     "map_window_nodes",
     "support_window",
-    "swath_outline",
-    "window_outline",
 ]

@@ -9,11 +9,8 @@ import numpy as np
 import xarray as xr
 
 from spectra.contracts.errors import ContractError
-from spectra.geometry.corners import (
-    cell_areas,
-    nodes_to_cell_vertices,
-    window_corner_nodes,
-)
+from spectra.geometry.corners import cell_areas, nodes_to_cell_vertices
+from spectra.geometry.swath import window_nodes
 from spectra.types import SceneGeometry, Window
 
 
@@ -79,46 +76,11 @@ def check_mass(result: RegridResult, rtol: float) -> None:
         )
 
 
-def target_window_nodes(
-    geometry: SceneGeometry, window: Window
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return the ``(n_across + 1, n_along + 1)`` node coordinates of a window.
-
-    Neighbouring pixel centres outside the window are used for the boundary
-    nodes where they exist, matching the CDO target grids.
-    """
-    n_across, n_along = geometry.shape
-    across0 = max(0, window.across.start - 1)
-    across1 = min(n_across, window.across.stop + 1)
-    along0 = max(0, window.along.start - 1)
-    along1 = min(n_along, window.along.stop + 1)
-    x = np.asarray(
-        geometry.x.isel(
-            {geometry.spatial_dims[0]: slice(across0, across1)},
-        )
-        .isel({geometry.spatial_dims[1]: slice(along0, along1)})
-        .values,
-        dtype=np.float64,
-    )
-    y = np.asarray(
-        geometry.y.isel(
-            {geometry.spatial_dims[0]: slice(across0, across1)},
-        )
-        .isel({geometry.spatial_dims[1]: slice(along0, along1)})
-        .values,
-        dtype=np.float64,
-    )
-    return (
-        window_corner_nodes(x, window, start=(across0, along0)),
-        window_corner_nodes(y, window, start=(across0, along0)),
-    )
-
-
 def target_window_cells(
     geometry: SceneGeometry, window: Window
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return ``(vertices_x, vertices_y, areas)`` of the pixels in a window."""
-    node_x, node_y = target_window_nodes(geometry, window)
+    node_x, node_y = window_nodes(geometry, window)
     vx = nodes_to_cell_vertices(node_x)
     vy = nodes_to_cell_vertices(node_y)
     return vx, vy, cell_areas(vx, vy)
@@ -129,5 +91,4 @@ __all__ = [
     "check_mass",
     "relative_mass_error",
     "target_window_cells",
-    "target_window_nodes",
 ]

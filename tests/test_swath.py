@@ -21,9 +21,9 @@ from spectra.geometry.swath import (
     random_anchor,
     swath_polygon,
     window_covering_support,
+    window_nodes,
     window_polygon,
 )
-from spectra.regrid.base import target_window_nodes
 from spectra.types import Placement, SceneGeometry, Window
 
 PLACEMENTS = ("rot", "flip", "partial")
@@ -75,7 +75,7 @@ def column(golden_microhh_raw: xr.Dataset) -> xr.DataArray:
 def test_swath_polygon_matches_full_node_outline(geometry: SceneGeometry) -> None:
     n_across, n_along = geometry.shape
     full = Window(across=slice(0, n_across), along=slice(0, n_along))
-    expected = outline_polygon(*target_window_nodes(geometry, full))
+    expected = outline_polygon(*window_nodes(geometry, full))
     swath = swath_polygon(geometry)
     assert np.array_equal(
         np.asarray(swath.exterior.coords), np.asarray(expected.exterior.coords)

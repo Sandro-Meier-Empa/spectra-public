@@ -19,6 +19,7 @@ from spectra.geometry.corners import (
 )
 from spectra.geometry.crs import from_lonlat, spatial_ref_coordinate, to_lonlat
 from spectra.geometry.placement import place_column
+from spectra.geometry.swath import anchor_pixel_spacing, swath_polygon
 from spectra.protocols import Regridder
 from spectra.registry import get_regridder
 from spectra.regrid import (
@@ -30,12 +31,7 @@ from spectra.regrid import (
 )
 from spectra.regrid.base import check_mass
 from spectra.regrid.polygon import clip_areas
-from spectra.regrid.windows import (
-    anchor_pixel_centre,
-    anchor_pixel_spacing,
-    map_window,
-    swath_outline,
-)
+from spectra.regrid.windows import anchor_pixel_centre, map_window
 from spectra.types import ANCHOR_CORNERS, MapGrid, Placement, SceneGeometry, Window
 
 CRS = pyproj.CRS.from_epsg(32632)
@@ -352,7 +348,7 @@ def test_rotated_target_lattice_conserves_mass(method, rotation):
     expected = outline_polygon(
         cell_corner_nodes(geometry.x.values), cell_corner_nodes(geometry.y.values)
     )
-    assert swath_outline(geometry).symmetric_difference(expected).area < 1e-6
+    assert swath_polygon(geometry).symmetric_difference(expected).area < 1e-6
 
 
 @pytest.mark.parametrize("method", list(REGRIDDERS))
@@ -454,7 +450,9 @@ def test_invalid_options_and_placements_raise():
 def brute_force_window(placed, geometry: SceneGeometry, margin: int = 1) -> Window:
     """Reference window from fully loaded centres (same rule as support_window)."""
     spacing = anchor_pixel_spacing(
-        geometry, placed.placement.anchor_across, placed.placement.anchor_along
+        geometry,
+        along=placed.placement.anchor_along,
+        across=placed.placement.anchor_across,
     )
     xmin, ymin, xmax, ymax = placed.support_polygon.bounds
     x = np.asarray(geometry.x.values)

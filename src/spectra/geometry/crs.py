@@ -108,14 +108,6 @@ def from_lonlat(
     return np.asarray(x, dtype=float), np.asarray(y, dtype=float)
 
 
-def utm_crs_for(lon: float, lat: float) -> pyproj.CRS:
-    """Return the WGS 84 UTM zone CRS containing a point."""
-    zone = int((lon + 180.0) // 6.0) + 1
-    zone = min(max(zone, 1), 60)
-    epsg = (32600 if lat >= 0 else 32700) + zone
-    return pyproj.CRS.from_epsg(epsg)
-
-
 __all__ = [
     "crs_from_dataset",
     "from_lonlat",
@@ -124,5 +116,4 @@ __all__ = [
     "require_projected_metre_crs",
     "spatial_ref_coordinate",
     "to_lonlat",
-    "utm_crs_for",
 ]

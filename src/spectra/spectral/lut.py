@@ -23,7 +23,6 @@ from spectra.types import RadianceLeg
 
 # Attributes copied from the model only when it defines them, so forward models
 # other than ``aviris4_ch4.mf.UnitAbsorption`` work without them.
-_OPTIONAL_MODEL_ATTRS = ("scenario", "wmin", "wmax")
 
 
 @runtime_checkable

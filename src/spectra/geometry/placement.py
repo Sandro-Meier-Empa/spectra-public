@@ -14,7 +14,6 @@ from typing import Any
 
 import numpy as np
 import pyproj
-import shapely
 import xarray as xr
 from shapely.geometry import Polygon
 
@@ -24,7 +23,6 @@ from spectra.geometry.corners import (
     cell_areas,
     cell_polygons,
     nodes_to_cell_vertices,
-    outline_polygon,
 )
 from spectra.geometry.transform import (
     anchor_cell_centre,
@@ -91,11 +89,6 @@ class PlacedColumn:
         return abs(self.dx * self.dy)
 
     @property
-    def total_mass(self) -> float:
-        """Return the integral of ``values`` over the grid."""
-        return float(np.sum(self.values) * self.cell_area)
-
-    @property
     def support_vertices(self) -> np.ndarray:
         """Return the transformed support rectangle, ``(4, 2)`` absolute."""
         relative = support_vertices(
@@ -124,39 +117,6 @@ class PlacedColumn:
         """Return ``(ny, nx)`` planar cell areas from the transformed nodes."""
         vx, vy = self.cell_vertices()
         return cell_areas(vx, vy)
-
-    def outline(self) -> Polygon:
-        """Return the outer boundary of the placed grid."""
-        return outline_polygon(self.node_x, self.node_y)
-
-    def mass_points(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Return centre coordinates and weights of the nonzero cells."""
-        nonzero = self.values > 0
-        return (
-            self.centre_x[nonzero],
-            self.centre_y[nonzero],
-            self.values[nonzero] * self.cell_area,
-        )
-
-    def outside_fraction(self, region: Polygon) -> float:
-        """Return the mass fraction of nonzero cells centred outside ``region``.
-
-        A support rectangle covered by the region contains the whole plume and
-        one disjoint from it none, so only straddling rectangles need the
-        cell-centre test. Cells count by their centre, so the fraction is
-        resolved at the LES cell size, as in ``aviris4_ch4``.
-        """
-        support = self.support_polygon
-        if region.covers(support):
-            return 0.0
-        if not region.intersects(support):
-            return 1.0
-        x, y, weights = self.mass_points()
-        total = float(weights.sum())
-        if total <= 0:
-            return 1.0
-        inside = np.asarray(shapely.contains_xy(region, x, y), dtype=bool)
-        return float(min(1.0, max(0.0, 1.0 - float(weights[inside].sum()) / total)))
 
 
 def _validate_axis(coordinate: xr.DataArray, name: str) -> tuple[np.ndarray, float]:

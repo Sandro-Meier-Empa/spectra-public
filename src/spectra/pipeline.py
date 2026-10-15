@@ -7,8 +7,9 @@ through the adapter, provider, retriever and regridder plugins.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import xarray as xr
@@ -194,6 +195,19 @@ def embed_radiance(
     return embedded
 
 
+_PROVENANCE_PREFIXES = ("window_", "regrid_", "plume_", "anchor_", "placement_")
+_PROVENANCE_KEYS = ("rotation_deg", "flip", "emission_scale", "time_index")
+
+
+def _provenance(attrs: Mapping[Any, Any]) -> dict[Any, Any]:
+    """Return the window, regridding and placement attributes of an injected column."""
+    return {
+        key: value
+        for key, value in attrs.items()
+        if key.startswith(_PROVENANCE_PREFIXES) or key in _PROVENANCE_KEYS
+    }
+
+
 def retrieve_embedded(
     embedded: xr.Dataset,
     target: xr.Dataset,
@@ -217,18 +231,8 @@ def retrieve_embedded(
             if key.startswith("embedding_")
         }
     )
-    product.attrs.update(
-        {
-            key: value
-            for key, value in embedded[injected].attrs.items()
-            if key.startswith(("window_", "regrid_", "plume_", "anchor_", "placement_"))
-        }
-        if injected in embedded
-        else {}
-    )
-    for key in ("rotation_deg", "flip", "emission_scale", "time_index"):
-        if injected in embedded and key in embedded[injected].attrs:
-            product.attrs[key] = embedded[injected].attrs[key]
+    if injected in embedded:
+        product.attrs.update(_provenance(embedded[injected].attrs))
     product.attrs["embedding_method"] = "radiance"
     return product
 
@@ -269,16 +273,7 @@ def embed_product(
             regridder=str(injected.attrs.get("regrid_method", "")),
         )
     )
-    embedded.attrs.update(
-        {
-            key: value
-            for key, value in injected.attrs.items()
-            if key.startswith(("window_", "regrid_", "plume_", "anchor_", "placement_"))
-        }
-    )
-    for key in ("rotation_deg", "flip", "emission_scale", "time_index"):
-        if key in injected.attrs:
-            embedded.attrs[key] = injected.attrs[key]
+    embedded.attrs.update(_provenance(injected.attrs))
     embedded.attrs["embedding_method"] = "product"
     return embedded
 

@@ -21,7 +21,7 @@ from spectra.contracts import (
 from spectra.contracts.errors import ContractError
 from spectra.protocols import SensorAdapter
 from spectra.registry import GROUPS, list_plugins
-from spectra.types import Placement, SceneRecord
+from spectra.types import ANCHOR_CORNERS, FLIPS, Placement, SceneRecord
 
 CONTRACT_VALIDATORS = {
     "plume-column": validate_plume_column,
@@ -29,7 +29,6 @@ CONTRACT_VALIDATORS = {
     "column-product": validate_column_product,
     "lut": validate_lut,
 }
-ANCHORS = ("lower left", "lower right", "upper left", "upper right")
 
 
 def _fail(message: str) -> None:
@@ -128,11 +127,11 @@ def _add_common_embed_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--emission-scale", type=float, default=1.0)
     parser.add_argument("--anchor-along", type=int, default=None)
     parser.add_argument("--anchor-across", type=int, default=None)
-    parser.add_argument("--anchor-corner", choices=ANCHORS, default="lower left")
+    parser.add_argument("--anchor-corner", choices=ANCHOR_CORNERS, default="lower left")
     parser.add_argument(
         "--rotation", type=int, default=0, help="Whole degrees, CCW positive."
     )
-    parser.add_argument("--flip", choices=("none", "x", "y"), default="none")
+    parser.add_argument("--flip", choices=FLIPS, default="none")
     parser.add_argument(
         "--seed", type=int, default=None, help="Seed of the random anchor draw."
     )

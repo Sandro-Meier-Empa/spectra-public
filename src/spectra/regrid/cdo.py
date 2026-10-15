@@ -31,13 +31,14 @@ from shapely.geometry import Polygon
 
 from spectra.contracts.errors import ContractError, RegridderUnavailableError
 from spectra.geometry.corners import (
+    cell_areas,
     cell_vertices_to_nodes,
     nodes_to_cell_vertices,
     outline_from_nodes,
     require_finite,
     window_corner_nodes,
 )
-from spectra.geometry.crs import require_projected_metre_crs
+from spectra.geometry.crs import require_projected_metre_crs, to_lonlat
 from spectra.geometry.swath import ScenePlacement, place_in_scene
 from spectra.geometry.transform import transform_coordinates
 from spectra.scene.window import expand_window, normalise_remapped_dimensions
@@ -68,7 +69,6 @@ _SAFE_ENCODING_KEYS = frozenset(
         "zlib",
     }
 )
-_AUXILIARY_VARIABLES = ("x", "y", "lon", "lat", "lonc", "latc", "dummy")
 
 
 @dataclass(frozen=True)
@@ -134,10 +134,9 @@ def _validate_output_paths(output_paths: tuple[Path, ...], overwrite: bool) -> N
             raise FileExistsError("Output file already exists: " + ", ".join(existing))
 
 
-def _to_lonlat_scalar(crs: pyproj.CRS, x: float, y: float) -> tuple[float, float]:
+def _scalar_lonlat(crs: pyproj.CRS, x: float, y: float) -> tuple[float, float]:
     """Transform one projected point to longitude and latitude."""
-    transformer = pyproj.Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
-    longitude, latitude = transformer.transform(x, y)
+    longitude, latitude = to_lonlat(crs, x, y)
     return float(longitude), float(latitude)
 
 
@@ -249,7 +248,7 @@ def georeferenced_source(
     draw = scene_placement.draw
     placement = scene_placement.placement
     crs = geometry.crs
-    longitude, latitude = _to_lonlat_scalar(crs, draw.anchor_x, draw.anchor_y)
+    longitude, latitude = _scalar_lonlat(crs, draw.anchor_x, draw.anchor_y)
     to_projected = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     projected_x, projected_y = to_projected.transform(longitude, latitude)
     if not np.isfinite(projected_x) or not np.isfinite(projected_y):
@@ -477,9 +476,7 @@ def _write_window_geometry(
     output: NetCDFDataset,
     geometry: SceneGeometry,
     window: Window,
-    *,
-    extent_crs: pyproj.CRS | None = None,
-) -> tuple[float, float, float, float] | None:
+) -> None:
     """Write chunked geographic centres and cell bounds of a window."""
     n_across, n_along = window.shape
     centre_chunks = _geometry_chunks(n_across, n_along, vertices=1)
@@ -488,13 +485,6 @@ def _write_window_geometry(
         output, HORIZONTAL_DIMS, centre_chunks, corner_chunks
     )
     to_geo = pyproj.Transformer.from_crs(geometry.crs, "EPSG:4326", always_xy=True)
-    to_extent = (
-        None
-        if extent_crs is None
-        else pyproj.Transformer.from_crs(geometry.crs, extent_crs, always_xy=True)
-    )
-    xmin = ymin = np.inf
-    xmax = ymax = -np.inf
     for start, stop, x, y, node_x, node_y in _window_row_blocks(geometry, window):
         out = slice(start - window.across.start, stop - window.across.start)
         require_finite(x, y)
@@ -507,16 +497,6 @@ def _write_window_geometry(
         require_finite(corner_lon, corner_lat)
         lonc[out] = nodes_to_cell_vertices(corner_lon)
         latc[out] = nodes_to_cell_vertices(corner_lat)
-        if to_extent is not None:
-            extent_x, extent_y = to_extent.transform(node_x, node_y)
-            require_finite(extent_x, extent_y)
-            xmin = min(xmin, float(np.min(extent_x)))
-            xmax = max(xmax, float(np.max(extent_x)))
-            ymin = min(ymin, float(np.min(extent_y)))
-            ymax = max(ymax, float(np.max(extent_y)))
-    if to_extent is None:
-        return None
-    return xmin, ymin, xmax, ymax
 
 
 def write_target_window(
@@ -618,7 +598,7 @@ def prepare_cdo_files(
     draw = scene_placement.draw
     placed = scene_placement.placed
     window = scene_placement.window
-    longitude, latitude = _to_lonlat_scalar(geometry.crs, draw.anchor_x, draw.anchor_y)
+    longitude, latitude = _scalar_lonlat(geometry.crs, draw.anchor_x, draw.anchor_y)
     result = CdoPreparation(
         source_path=source_path,
         target_grid_path=target_grid_path,
@@ -689,17 +669,6 @@ def prepare_regular_target_grid(
     return path
 
 
-def _target_geometry_chunks(nrows: int, ncols: int, vertices: int) -> tuple[int, ...]:
-    """Return bounded chunks for regular target-grid variables."""
-    row_chunk = min(8, nrows)
-    col_chunk = max(
-        1,
-        _NETCDF_CHUNK_BYTES // (np.dtype(np.float64).itemsize * row_chunk * vertices),
-    )
-    base = (row_chunk, min(ncols, col_chunk))
-    return base if vertices == 1 else (*base, vertices)
-
-
 def _write_regular_grid(
     path: Path,
     bounds: tuple[float, float, float, float],
@@ -746,8 +715,8 @@ def _write_regular_grid(
                 **crs_attrs,
             }
         )
-        centre_chunks = _target_geometry_chunks(ny, nx, vertices=1)
-        corner_chunks = _target_geometry_chunks(ny, nx, vertices=4)
+        centre_chunks = _geometry_chunks(ny, nx, vertices=1)
+        corner_chunks = _geometry_chunks(ny, nx, vertices=4)
         lon, lat, lonc, latc = _create_lonlat_variables(
             output, ("y", "x"), centre_chunks, corner_chunks
         )
@@ -814,15 +783,10 @@ def _projected_cell_corners(data: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
 def _cell_areas_from_lonlat(data: xr.Dataset) -> xr.DataArray:
     """Calculate projected cell areas from CDO longitude/latitude bounds."""
     x, y = _projected_cell_corners(data)
-    x = x - x[..., :1]
-    y = y - y[..., :1]
-    area_values = 0.5 * np.abs(
-        np.sum(x * np.roll(y, -1, axis=-1) - y * np.roll(x, -1, axis=-1), axis=-1)
-    )
     spatial_dims = data["lonc"].dims[:-1]
     coordinates = {dim: data.coords[dim] for dim in spatial_dims if dim in data.coords}
     return xr.DataArray(
-        area_values,
+        cell_areas(x, y),
         dims=spatial_dims,
         coords=coordinates,
         attrs={"units": "m2", "long_name": "projected pixel area"},

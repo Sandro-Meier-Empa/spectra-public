@@ -69,15 +69,6 @@ class SupportsProduct(Protocol):
 
 
 @runtime_checkable
-class SupportsOrtho(Protocol):
-    """Optional adapter capability: orthorectify a sensor-space product."""
-
-    def to_map(self, product: xr.Dataset, record: SceneRecord) -> xr.Dataset:
-        """Project a sensor-geometry product onto its map grid."""
-        ...
-
-
-@runtime_checkable
 class UnitAbsorptionProvider(Protocol):
     """Compute unit absorption spectra and absorption tables for a sensor."""
 
@@ -162,7 +153,6 @@ __all__ = [
     "Regridder",
     "Retriever",
     "SensorAdapter",
-    "SupportsOrtho",
     "SupportsProduct",
     "UnitAbsorptionProvider",
 ]
