@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -33,7 +34,8 @@ def test_sensor_conformance(name: str, adapter: SensorAdapter) -> None:
     variable = f"SPECTRA_TEST_{name.upper()}_SCENES"
     scenes = os.environ.get(variable)
     if isinstance(adapter, ToySensorAdapter):
-        records = adapter.list_scenes(None, n=1)
+        # pyright keeps the protocol signature after narrowing; the toy takes None.
+        records = cast(ToySensorAdapter, adapter).list_scenes(None, n=1)
     elif not scenes or not Path(scenes).exists():
         pytest.skip(f"{name}: {variable} is not set or does not exist")
     else:
@@ -44,10 +46,12 @@ def test_sensor_conformance(name: str, adapter: SensorAdapter) -> None:
 
 
 def test_toy_adapter_from_registry() -> None:
-    adapter = get_sensor("toy", n_across=16, n_along=24, noise_sigma=0.01)
-    assert isinstance(adapter, ToySensorAdapter)
-    assert isinstance(adapter, SensorAdapter)
-    assert isinstance(adapter, SupportsProduct)
+    plugin = get_sensor("toy", n_across=16, n_along=24, noise_sigma=0.01)
+    assert isinstance(plugin, ToySensorAdapter)
+    assert isinstance(plugin, SensorAdapter)
+    assert isinstance(plugin, SupportsProduct)
+    # pyright keeps the protocol signature after narrowing; the toy takes None.
+    adapter = cast(ToySensorAdapter, plugin)
     records = adapter.list_scenes(None, n=2)
     assert [record.scene_id for record in records] == ["toy-0001", "toy-0002"]
     assert records[1].acquisition_time.day == records[0].acquisition_time.day + 1

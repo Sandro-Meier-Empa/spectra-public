@@ -19,8 +19,8 @@ from spectra.contracts import (
     validate_sensor_scene,
 )
 from spectra.contracts.errors import ContractError
-from spectra.registry import GROUPS, list_plugins
 from spectra.protocols import SensorAdapter
+from spectra.registry import GROUPS, list_plugins
 from spectra.types import Placement, SceneRecord
 
 CONTRACT_VALIDATORS = {

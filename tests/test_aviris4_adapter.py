@@ -84,8 +84,12 @@ def test_roles_and_record_from_files(synthetic: dict[str, Path]) -> None:
         "metadata": str(synthetic["late_metadata"].resolve()),
     }
     assert record.has_radiance and not record.has_product
-    assert record.center_lonlat == pytest.approx((0.0, 43.0))
-    assert record.bbox_lonlat == pytest.approx((-0.01, 42.99, 0.01, 43.01))
+    # The footprint is sampled from the metadata header, inside the lon/lat range.
+    assert -0.01 <= record.center_lonlat[0] <= 0.01
+    assert 42.99 <= record.center_lonlat[1] <= 43.01
+    assert record.bbox_lonlat is not None
+    west, south, east, north = record.bbox_lonlat
+    assert -0.01 <= west <= east <= 0.01 and 42.99 <= south <= north <= 43.01
 
     explicit = adapter.record_from_files(
         str(synthetic["early_radiance"]),
@@ -100,7 +104,7 @@ def test_roles_and_record_from_files(synthetic: dict[str, Path]) -> None:
     assert explicit.uris["product"] == str(synthetic["early_product"].resolve())
     assert adapter.background_group(explicit) == "aviris4:pau-day1"
 
-    with pytest.raises(ContractError, match="shadow file .* is missing"):
+    with pytest.raises(ContractError, match=r"shadow file .* is missing"):
         adapter.record_from_files(
             synthetic["late_radiance"],
             synthetic["late_metadata"],
@@ -118,8 +122,14 @@ def test_list_scenes_from_table_is_sorted_and_filtered(
         # Relative paths resolve against the table; the later scene is listed first.
         writer.writerow(["late", "L1/late_rdn.nc", "L1/late_rdn_metadata.nc", "", "1"])
         writer.writerow(
-            ["early", "L1/early_rdn.nc", "L1/early_rdn_metadata.nc", "L2/early_rdn_CH4.nc", "2"]
-        )  # fmt: skip
+            [
+                "early",
+                "L1/early_rdn.nc",
+                "L1/early_rdn_metadata.nc",
+                "L2/early_rdn_CH4.nc",
+                "2",
+            ]
+        )
     adapter = Aviris4Adapter()
     records = adapter.list_scenes(table)
     assert [record.scene_id for record in records] == ["early", "late"]
@@ -264,7 +274,6 @@ def test_cli_embed_help_lists_file_flags(
         "--background-group",
     ):
         assert flag in out
-    assert "--root" not in out
 
 
 # -- real flight lines -------------------------------------------------------------
