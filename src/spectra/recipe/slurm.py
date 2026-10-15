@@ -40,6 +40,7 @@ def array_commands(
         f"N_SAMPLES={recipe.n_samples}",
         f"PER_SHARD={per_shard}",
         f"TASKS={slurm.tasks_per_job}",
+        "PIDS=()",
         "for TASK in $(seq 0 $((TASKS - 1))); do",
         "    SHARD=$((SLURM_ARRAY_TASK_ID * TASKS + TASK))",
         "    START=$((SHARD * PER_SHARD))",
@@ -48,8 +49,11 @@ def array_commands(
         '    if [ "$START" -ge "$N_SAMPLES" ]; then continue; fi',
         f"    {python} -m spectra.cli generate {recipe_path} --out {out_dir} "
         '--index-range "$START:$STOP" --shard "$SHARD" &',
+        "    PIDS+=($!)",
         "done",
-        "wait",
+        "FAILED=0",
+        'for PID in ${PIDS[@]+"${PIDS[@]}"}; do wait "$PID" || FAILED=1; done',
+        'exit "$FAILED"',
     ]
 
 

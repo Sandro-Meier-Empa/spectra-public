@@ -104,7 +104,7 @@ def validate_sensor_scene(
     if "radiance" not in dataset:
         raise ContractError("SensorScene must contain 'radiance'.")
     radiance = dataset["radiance"]
-    if set(radiance.dims) != set(SENSOR_DIMS):
+    if tuple(radiance.dims) != tuple(SENSOR_DIMS):
         raise ContractError(
             f"SensorScene 'radiance' must use dimensions {SENSOR_DIMS}; "
             f"got {radiance.dims}."

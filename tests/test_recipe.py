@@ -491,5 +491,6 @@ def test_slurm_array_script(
     assert "python -m spectra.cli generate" in text
     assert '--index-range "$START:$STOP" --shard "$SHARD"' in text
     assert "TASKS=2" in text
+    assert "wait $PID" not in text and 'wait "$PID" || FAILED=1' in text
     assert (out / "recipe.resolved.yaml").exists()
     assert recipe_hash(load_recipe(out / "recipe.resolved.yaml")) == recipe_hash(recipe)

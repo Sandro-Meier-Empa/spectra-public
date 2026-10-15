@@ -287,6 +287,9 @@ SCENE_MUTATIONS: dict[str, Mutation] = {
     "pixel_area_wrong_dims": lambda ds: ds.assign(pixel_area=100.0),
     "platform_invalid": lambda ds: with_attr(ds, "platform", "balloon"),
     "geometry_space_map": lambda ds: with_attr(ds, "geometry_space", "map"),
+    "radiance_wrong_order": lambda ds: ds.assign(
+        radiance=ds["radiance"].transpose("band", "across", "along")
+    ),
 }
 
 

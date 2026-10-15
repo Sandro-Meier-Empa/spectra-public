@@ -431,12 +431,16 @@ def _classify(row: SceneRow, thresholds: QaThresholds) -> tuple[Status, str]:
             f"valid_fraction {row.valid_fraction:.3f} < "
             f"{thresholds.min_valid_fraction}",
         )
+    if np.isnan(row.cloud_fraction):
+        return "manual_review", "cloud_fraction unknown"
     if row.cloud_fraction > thresholds.max_cloud_fraction:
         return (
             "rejected",
             f"cloud_fraction {row.cloud_fraction:.3f} > "
             f"{thresholds.max_cloud_fraction}",
         )
+    if thresholds.max_bg_std_kgm2 is not None and np.isnan(row.bg_std_kgm2):
+        return "manual_review", "bg_std_kgm2 unknown"
     if (
         thresholds.max_bg_std_kgm2 is not None
         and row.bg_std_kgm2 > thresholds.max_bg_std_kgm2

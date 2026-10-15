@@ -221,6 +221,8 @@ def validate_plume_column(
         partial = dataset["column_below_altitude"]
         _require_dims(partial, "column_below_altitude", ("time", "altitude", "y", "x"))
         _require_units(partial, "column_below_altitude", COLUMN_UNITS)
+        if "altitude" not in dataset.coords:
+            raise ContractError("PlumeColumn lacks the 'altitude' coordinate.")
         altitude = np.asarray(dataset.coords["altitude"].values, dtype=float)
         if np.any(np.diff(altitude) <= 0):
             raise ContractError("PlumeColumn 'altitude' must be strictly increasing.")

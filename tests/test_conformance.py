@@ -78,6 +78,14 @@ def test_toy_adapter_from_registry() -> None:
         ToySensorAdapter(bogus=1)
 
 
+def test_toy_adapter_accepts_scene_keyword_options() -> None:
+    adapter = ToySensorAdapter(n_across=8, n_along=8, platform="airborne")
+    record = adapter.list_scenes(None, n=1)[0]
+    assert adapter.open_scene(record).sizes["across"] == 8
+    with pytest.raises(ValueError, match="per scene record"):
+        ToySensorAdapter(lazy=False)
+
+
 def test_sensor_conformance_reports_violations() -> None:
     adapter = ToySensorAdapter(n_across=8, n_along=8)
     record = adapter.list_scenes()[0]

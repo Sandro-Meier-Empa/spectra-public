@@ -32,7 +32,16 @@ _LATTICE_OPTIONS = frozenset(
         "grid_rotation_deg",
     }
 )
-_RESERVED_OPTIONS = frozenset({"scene_id", "seed", "sensor", "acquisition_time"})
+_RESERVED_OPTIONS = frozenset(
+    {
+        "scene_id",
+        "seed",
+        "sensor",
+        "acquisition_time",
+        "background_group",
+        "lazy",
+    }
+)
 _SCENE_OPTIONS = frozenset(inspect.signature(make_sensor_scene).parameters)
 
 
@@ -46,8 +55,9 @@ class ToySensorAdapter:
     Args:
         **scene_options: Keyword arguments forwarded to ``make_sensor_scene``
             for every scene, for example ``n_across`` or ``noise_sigma``.
-            ``scene_id``, ``seed``, ``sensor`` and ``acquisition_time`` are
-            set per record and cannot be given.
+            ``scene_id``, ``seed``, ``sensor``, ``acquisition_time``,
+            ``background_group`` and ``lazy`` are set per record and cannot
+            be given.
 
     Raises:
         ValueError: If an option is reserved or unknown.
@@ -66,11 +76,12 @@ class ToySensorAdapter:
                 f"Unknown make_sensor_scene options {sorted(unknown)}; choose from "
                 f"{sorted(_SCENE_OPTIONS - _RESERVED_OPTIONS)}."
             )
-        platform = scene_options.get("platform", self.platform)
+        options: dict[str, Any] = dict(scene_options)
+        platform = options.pop("platform", self.platform)
         if platform not in PLATFORMS:
             raise ValueError(f"platform must be one of {PLATFORMS}.")
         self.platform = platform
-        self.scene_options: dict[str, Any] = dict(scene_options)
+        self.scene_options = options
 
     def _footprint_lonlat(
         self,

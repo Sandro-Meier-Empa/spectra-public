@@ -545,6 +545,16 @@ def test_thresholds_quarantine_and_background_std(
     assert "bg_std" in str(catalog.row("plume").status_reason)
 
 
+def test_thresholds_send_unknown_metrics_to_manual_review(
+    catalog: SceneCatalog, adapter: FakeAdapter
+) -> None:
+    _qa_all(catalog, adapter)
+    catalog.frame.loc[catalog.frame["scene_id"] == "clean", "cloud_fraction"] = np.nan
+    outcomes = catalog.apply_thresholds(QaThresholds())
+    assert outcomes["clean"] == "manual_review"
+    assert "cloud_fraction" in str(catalog.row("clean").status_reason)
+
+
 def test_set_status_transitions(catalog: SceneCatalog, adapter: FakeAdapter) -> None:
     with pytest.raises(CatalogError, match="not allowed"):
         catalog.set_status("clean", "eligible", reason="skip qa", by="me")
