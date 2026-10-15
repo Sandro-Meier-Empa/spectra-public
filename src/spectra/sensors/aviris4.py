@@ -57,7 +57,13 @@ def _scene_time(radiance: xr.Dataset, path: Path) -> np.datetime64:
                 np.asarray(value).astype("datetime64[ns]").reshape(-1)[0]
             )
     misc = _aviris4_misc()
-    stamp = misc.extract_datetime(path, tz="UTC")
+    try:
+        stamp = misc.extract_datetime(path, tz="UTC")
+    except ValueError as error:
+        raise ContractError(
+            f"{path} has no scalar 'time' variable and its name carries no "
+            "acquisition time."
+        ) from error
     return np.datetime64(stamp.tz_convert("UTC").tz_localize(None))
 
 

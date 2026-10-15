@@ -58,7 +58,9 @@ the `prism` machine-learning repository. The package uses a `src/` layout.
   read by `spectra.sensors.table`, `record_from_files`, or `--radiance`/
   `--metadata`/`--file ROLE=PATH` on the command line); adapters declare
   their file roles (`ROLES`) and only open what they are given. Examples and
-  docs use `/path/to/...` placeholders, never site-specific paths.
+  docs use `/path/to/...` placeholders, never site-specific paths. The one
+  exception is the AVIRIS-4 adapter, which falls back to the acquisition time
+  in the radiance file name when the file has no scalar `time` variable.
 - `aviris4_ch4`, `ddeq`, `microhh_processing_chain` and `prism` must never
   import `spectra`; keep the dependency direction one-way.
 - Keep scientific data handling explicit with `xarray`, `numpy`, `pandas`,
