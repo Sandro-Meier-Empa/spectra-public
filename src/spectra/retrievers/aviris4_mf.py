@@ -102,8 +102,15 @@ class Aviris4MatchedFilter:
         if self.mask_shadows and "shadow" in scene:
             data["shadow_mask"] = scene["shadow"].astype(bool)
             data["shadow_mask"].attrs = dict(scene["shadow"].attrs)
-        if settings.exclude_injected_from_background and "plume_mask" in scene:
-            data["plume_mask"] = scene["plume_mask"].astype(bool)
+        if settings.exclude_injected_from_background:
+            if "plume_mask" not in scene:
+                raise ContractError(
+                    "exclude_injected_from_background needs a 'plume_mask' in the "
+                    "scene; retrieve through spectra.pipeline.retrieve_embedded."
+                )
+            # aviris4_ch4 requires the mask dims in the radiance's spatial order.
+            spatial = [dim for dim in data["radiance"].dims if dim != "band"]
+            data["plume_mask"] = scene["plume_mask"].astype(bool).transpose(*spatial)
         if data["radiance"].chunks is not None:
             data = data.chunk(self.chunks)
         return data
@@ -174,6 +181,12 @@ class Aviris4MatchedFilter:
                 ),
                 "retrieval_band_windows_nm": str(settings.band_windows_nm),
                 "retrieval_min_n_samples": int(settings.min_n_samples),
+                "retrieval_exclude_injected_from_background": int(
+                    settings.exclude_injected_from_background
+                ),
+                "retrieval_plume_mask_threshold_kg_m2": float(
+                    settings.plume_mask_threshold_kg_m2
+                ),
             }
         )
         return product

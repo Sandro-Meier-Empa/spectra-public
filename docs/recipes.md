@@ -56,7 +56,7 @@ recipe file. Defaults are shown; keys without a default are required.
 | `embedding.regridder`, `regridder_options` | `polygon`, `{}` | Conservative regridder plugin. |
 | `embedding.lut` | `{0.01, 200.0, 12, 1000.0, both}` | `enhancement_min_ppm`, `enhancement_max_ppm`, `n_nodes` (log-spaced), `layer_height_m`, `radiance_leg`. |
 | `embedding.unit_absorption` | `null` | `{provider, options}`; required for `radiance`. |
-| `retrieval` | `null` | `{retriever, options, statistics_scope: window, target_enhancement_ppm: 10, band_windows_nm, min_n_samples: 7000, exclude_injected_from_background: false}`; required for `radiance`. |
+| `retrieval` | `null` | `{retriever, options, statistics_scope: window, target_enhancement_ppm: 10, band_windows_nm, min_n_samples: 7000, exclude_injected_from_background: false, plume_mask_threshold_kg_m2: 0}`; required for `radiance`. With `exclude_injected_from_background`, pixels whose injected column exceeds `plume_mask_threshold_kg_m2` are excluded from the background statistics. |
 | `negatives.fraction` | `0.0` | Probability that a sample carries no plume. |
 | `labels.detection_snr`, `ambiguous_snr` | `2.0`, `1.0` | prism label thresholds (recorded on products and passed to `prism-compose-dataset`). |
 | `split.ratios` | `{train: 0.7, val: 0.15, test: 0.15}` | Group and sample fractions; must sum to 1. |

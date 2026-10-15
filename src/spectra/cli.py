@@ -222,6 +222,18 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     radiance.add_argument("--min-n-samples", type=int, default=7000)
+    radiance.add_argument(
+        "--exclude-injected-from-background",
+        action="store_true",
+        help="Mask the injected plume from the matched-filter background statistics.",
+    )
+    radiance.add_argument(
+        "--plume-mask-threshold",
+        type=float,
+        default=0.0,
+        metavar="KG_M2",
+        help="Injected column (kg m-2) above which a pixel is masked. Default 0.",
+    )
     radiance.add_argument("--serial", action="store_true")
     radiance.set_defaults(func=cmd_embed, method="radiance")
 
@@ -401,6 +413,8 @@ def cmd_embed(args: argparse.Namespace) -> None:
             band_windows_nm=windows or ((1480.0, 1800.0), (2080.0, 2500.0)),
             target_enhancement_ppm=args.mf_enhancement,
             min_n_samples=args.min_n_samples,
+            exclude_injected_from_background=args.exclude_injected_from_background,
+            plume_mask_threshold_kg_m2=args.plume_mask_threshold,
         )
         spec = EmbeddingSpec(
             column_convention=args.column_convention,

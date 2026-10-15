@@ -135,6 +135,7 @@ def retrieval_settings(recipe: Recipe) -> RetrievalSettings | None:
         target_enhancement_ppm=retrieval.target_enhancement_ppm,
         min_n_samples=retrieval.min_n_samples,
         exclude_injected_from_background=retrieval.exclude_injected_from_background,
+        plume_mask_threshold_kg_m2=retrieval.plume_mask_threshold_kg_m2,
         options=dict(retrieval.options),
     )
 

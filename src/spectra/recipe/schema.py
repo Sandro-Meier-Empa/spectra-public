@@ -413,6 +413,8 @@ class RetrievalSpec:
         band_windows_nm: Wavelength windows of the retrieval.
         min_n_samples: Minimum background spectra per statistic.
         exclude_injected_from_background: Mask the plume from the statistics.
+        plume_mask_threshold_kg_m2: Injected column above which a pixel is
+            masked as plume.
     """
 
     retriever: str
@@ -425,6 +427,7 @@ class RetrievalSpec:
     )
     min_n_samples: int = 7000
     exclude_injected_from_background: bool = False
+    plume_mask_threshold_kg_m2: float = 0.0
 
     def __post_init__(self) -> None:
         """Validate the retrieval settings."""
@@ -435,6 +438,10 @@ class RetrievalSpec:
         )
         _positive(self.target_enhancement_ppm, "retrieval.target_enhancement_ppm")
         _require(self.min_n_samples >= 1, "retrieval.min_n_samples must be >= 1.")
+        _require(
+            self.plume_mask_threshold_kg_m2 >= 0,
+            "retrieval.plume_mask_threshold_kg_m2 must be >= 0.",
+        )
         for window in self.band_windows_nm:
             _require(
                 len(window) == 2 and window[0] < window[1],

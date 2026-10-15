@@ -469,6 +469,8 @@ class RetrievalSettings:
         min_n_samples: Minimum number of background spectra per statistic.
         exclude_injected_from_background: Mask the injected plume from the
             background statistics (idealised background).
+        plume_mask_threshold_kg_m2: Injected column above which a pixel
+            counts as plume when ``exclude_injected_from_background`` is set.
         options: Retriever-specific options, validated by the retriever.
     """
 
@@ -480,6 +482,7 @@ class RetrievalSettings:
     target_enhancement_ppm: float = 10.0
     min_n_samples: int = 7000
     exclude_injected_from_background: bool = False
+    plume_mask_threshold_kg_m2: float = 0.0
     options: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -495,6 +498,8 @@ class RetrievalSettings:
             raise ContractError("target_enhancement_ppm must be positive.")
         if self.min_n_samples < 1:
             raise ContractError("min_n_samples must be at least 1.")
+        if not self.plume_mask_threshold_kg_m2 >= 0:
+            raise ContractError("plume_mask_threshold_kg_m2 must be >= 0.")
 
 
 __all__ = [
