@@ -1,0 +1,158 @@
+{
+  "built_utc": "2026-10-14T00:13:12.407563+00:00",
+  "aviris4_ch4_version": "1.1.1.dev13+gd28d8d547",
+  "source_files": {
+    "metadata": "/capstor/store/cscs/c2sm/amrs/ARES/2024-campaign-fr/data/L1_geo/nc/M014_240916_FRA_Pau_Methane_3000ft_Line_0001_133313_000_rdn_metadata.nc",
+    "radiance": "/capstor/store/cscs/c2sm/amrs/ARES/2024-campaign-fr/data/L1_geo/nc/M014_240916_FRA_Pau_Methane_3000ft_Line_0001_133313_000_rdn.nc",
+    "microhh_case": "/capstor/store/cscs/userlab/lp171/smeier/microhh_output/pau_controlled_release.20240918_133000_290kgh_15min_v2_release",
+    "resources": "/capstor/store/cscs/c2sm/amrs/ARES/data-unit-abs-spec"
+  },
+  "window": {
+    "across": {
+      "start": 20,
+      "stop": 60
+    },
+    "along": {
+      "start": 6980,
+      "stop": 7140
+    }
+  },
+  "bands": {
+    "range_nm": [
+      2080,
+      2500
+    ],
+    "step": 2
+  },
+  "plume": {
+    "time_index": 120,
+    "x": {
+      "start": 512,
+      "stop": 542
+    },
+    "y": {
+      "start": 505,
+      "stop": 517
+    },
+    "simulation_time_s": 6000.0,
+    "total_column_sum": 0.031319547444581985
+  },
+  "geometry": {
+    "lat": 43.41601484110319,
+    "lon": -0.6635378991435076,
+    "time_utc": "2024-09-16T11:33:13.000000000",
+    "sza": 41.42057896821902,
+    "vza": 0.0,
+    "elevation": 95.0,
+    "altitude": 1058.0,
+    "xch4_bg": 1.93191,
+    "layer_height": 1000.0,
+    "nodes_ppm": [
+      0.01,
+      0.04115597137836079,
+      0.1693813980096453,
+      0.6971055968511702,
+      2.8690057991701874,
+      11.807672055499935,
+      48.59562131612263,
+      200.00000000000003
+    ]
+  },
+  "placements": {
+    "rot": {
+      "anchor": "upper left",
+      "rotation": -20,
+      "flip_axis": null,
+      "along_index": 15,
+      "across_index": 2,
+      "along_slice": {
+        "start": 0,
+        "stop": 94
+      },
+      "across_slice": {
+        "start": 0,
+        "stop": 38
+      },
+      "longitude": -0.663838625928265,
+      "latitude": 43.4161208615332,
+      "x_offset": 689129.6281253054,
+      "y_offset": 4809665.787720219,
+      "outside_fraction": 0.0
+    },
+    "flip": {
+      "anchor": "lower right",
+      "rotation": 10,
+      "flip_axis": "x",
+      "along_index": 20,
+      "across_index": 26,
+      "along_slice": {
+        "start": 11,
+        "stop": 109
+      },
+      "across_slice": {
+        "start": 0,
+        "stop": 30
+      },
+      "longitude": -0.6637997753501439,
+      "latitude": 43.41598521419071,
+      "x_offset": 689104.1958882624,
+      "y_offset": 4809661.810696557,
+      "outside_fraction": 0.0
+    },
+    "partial": {
+      "anchor": "lower left",
+      "rotation": 0,
+      "flip_axis": null,
+      "along_index": 148,
+      "across_index": 36,
+      "along_slice": {
+        "start": 144,
+        "stop": 160
+      },
+      "across_slice": {
+        "start": 15,
+        "stop": 40
+      },
+      "longitude": -0.6632183087450293,
+      "latitude": 43.41591667888523,
+      "x_offset": 689180.4849952267,
+      "y_offset": 4809655.519192615,
+      "outside_fraction": 7.538497825976265e-09
+    }
+  },
+  "provenance_radiance": {
+    "embedding_method": "radiance",
+    "embedding_version": "lambert-beer-v1",
+    "embedding_column_convention": "vertical",
+    "embedding_geometric_air_mass_factor": 2.333558264833438,
+    "embedding_gas": "CH4",
+    "embedding_scenario": "midlatitude-summer",
+    "embedding_layer_height": 1000.0,
+    "embedding_effective_layer_height": 905.0,
+    "embedding_radiance_leg": "both",
+    "embedding_sza": 41.42057896821902,
+    "embedding_vza": 0.0,
+    "embedding_amf_convention": "sigma_slant removes the selected-path AMF"
+  },
+  "provenance_product": {
+    "embedding_method": "product",
+    "embedding_version": "lambert-beer-v1"
+  },
+  "hashes": {
+    "embedded_radiance_vertical": "56db838d9849a57414afcf5f614e01357adb0fdc83b87b5a76ab29b399f36eb1",
+    "embedded_radiance_slant": "d6eb40208201321c32cf96a635e4d09967545fc42a3c5e1efedd2ca6964e327d",
+    "injected_ch4_mass": "3f8d3620100113fe02cd44b0766932d19933078b6921a5e9597d33a947c0d609",
+    "product_embedded_ppm": "adf747519951947b44746111caf8e06b51fe817e5670ce545940bf727b851dd8",
+    "product_embedded_kg": "85a8eb1e84c79ca4e037728279dd53e3a7dfc31d407a9f261edb35452291e47b",
+    "lut_optical_depth": "f31b56eb92fd60909f9b7c116f6c7bf781b8474249b155ae5b21dc41d50f9982",
+    "placement_rot_source_ch4_path": "dc1aa5659a5fa915e7cb0ee5f3a0585db18a6e59b2f5527ce1734e2bfbec78c1",
+    "placement_rot_source_lonc": "7c572f1da0e6ef50f72577ba5a3fe70772f24d99506246f53e19704b2dd86357",
+    "placement_rot_target_lonc": "14675a533433882478fa3ba1e3fef64699f19c3d7fd1d548f8cd312f08ea0078",
+    "placement_flip_source_ch4_path": "dc1aa5659a5fa915e7cb0ee5f3a0585db18a6e59b2f5527ce1734e2bfbec78c1",
+    "placement_flip_source_lonc": "9d84bde0e3a22d00f98dcad63fbe80d1ff99da2822ade1cceba10a965516aab0",
+    "placement_flip_target_lonc": "91aa1552cd08b4d72dfcd717978529a3767c09ecb79c30d6184aed6704f586d3",
+    "placement_partial_source_ch4_path": "dc1aa5659a5fa915e7cb0ee5f3a0585db18a6e59b2f5527ce1734e2bfbec78c1",
+    "placement_partial_source_lonc": "7583b0ae21fd0f6370f45249985bc7433a7f6336cc0bd391ddb894a40bf66307",
+    "placement_partial_target_lonc": "8a6a9899f2590558ed811cf1520276b136efac6c899590fe57f685b97381fbf9"
+  }
+}

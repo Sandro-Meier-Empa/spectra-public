@@ -1,0 +1,174 @@
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm[simple]>=8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spectra"
+dynamic = ["version"]
+description = "SPECTRA: Synthetic Plume Embedding in Cubes for Trace-gas Remote-sensing Applications"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Sandro Meier", email = "sandro.meier@empa.ch" }]
+license = { file = "LICENSE" }
+keywords = [
+  "methane",
+  "plume",
+  "large-eddy simulation",
+  "hyperspectral",
+  "remote-sensing",
+  "synthetic data",
+  "machine learning",
+]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Atmospheric Science",
+  "Operating System :: OS Independent",
+]
+
+dependencies = [
+  "numpy",
+  "xarray",
+  "dask[array]",
+  "netCDF4",
+  "zarr",
+  "pandas",
+  "pyarrow",
+  "pyproj",
+  "shapely>=2",
+  "scipy",
+  "ucat>=0.2",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+# Sensor adapters and retrievals wrapping the sensor-specific packages.
+aviris4 = ["aviris4-ch4"]
+emit = ["ddeq", "rasterio>=1.4", "earthaccess"]
+# Validating the plume-column exporter of the MicroHH processing chain.
+microhh = ["microhh-processing-chain"]
+# Validating exported products against the prism sample contract.
+prism = ["prism"]
+# Slurm array generation on CSCS Alps.
+slurm = ["cscs"]
+dev = [
+  "bump-my-version>=1,<2",
+  "pre-commit",
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "pyright",
+  "nbstripout",
+]
+
+[project.scripts]
+spectra = "spectra.cli:main"
+
+# Plugin groups. Third-party packages register adapters under the same groups.
+[project.entry-points."spectra.sensors"]
+aviris4 = "spectra.sensors.aviris4:Aviris4Adapter"
+toy = "spectra.sensors.toy:ToySensorAdapter"
+
+[project.entry-points."spectra.retrievers"]
+aviris4_mf = "spectra.retrievers.aviris4_mf:Aviris4MatchedFilter"
+toy = "spectra.retrievers.toy:ToyRetriever"
+
+[project.entry-points."spectra.unit_absorption"]
+libradtran_arts = "spectra.spectral.providers.libradtran_arts:LibRadtranArtsProvider"
+toy = "spectra.spectral.providers.toy:ToyUnitAbsorption"
+
+[project.entry-points."spectra.regridders"]
+polygon = "spectra.regrid.polygon:PolygonRegridder"
+bucket = "spectra.regrid.bucket:BucketRegridder"
+cdo = "spectra.regrid.cdo:CdoRegridder"
+
+[project.urls]
+Homepage = "https://gitlab.empa.ch/abt503/users/mesa/spectra"
+Repository = "https://gitlab.empa.ch/abt503/users/mesa/spectra.git"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+fallback_version = "0.1.0"
+
+[tool.bumpversion]
+allow_dirty = false
+commit = false
+tag = true
+push_tag = true
+sign_tags = false
+tag_name = "v{new_version}"
+tag_message = "Release {new_version}"
+setup_hooks = [
+  "pre-commit run --all-files",
+  "python -m pytest",
+]
+
+[tool.pytest.ini_options]
+minversion = "8"
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+  "golden: compares against the recorded aviris4-ch4 golden fixture",
+  "resources: needs the libRadtran/ARTS resources (SPECTRA_TEST_RESOURCES)",
+  "data: needs real scene data (SPECTRA_TEST_DATA)",
+]
+
+[tool.pyright]
+include = ["src", "scripts", "tests"]
+exclude = [
+  "scripts/archive",
+  "**/node_modules",
+  "**/__pycache__",
+  "**/.*",
+]
+extraPaths = ["src"]
+typeCheckingMode = "standard"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+exclude = ["**/archive"]
+
+[tool.ruff.lint]
+select = [
+    "A",    # flake8-builtins — shadows of Python builtins
+    "ANN",  # flake8-annotations — missing type annotations
+    "B",    # flake8-bugbear — likely bugs and design problems
+    "C4",   # flake8-comprehensions — suboptimal comprehensions
+    "D",    # pydocstyle — docstring conventions
+    "E",    # pycodestyle errors — PEP 8 style errors
+    "F",    # pyflakes — undefined names, unused imports
+    "G",    # flake8-logging-format — logging anti-patterns
+    "I",    # isort — import ordering
+    "N",    # pep8-naming — naming convention violations
+    "PTH",  # flake8-use-pathlib — prefer pathlib over os.path
+    "RUF",  # Ruff-native rules — high quality, low noise
+    "SIM",  # flake8-simplify — simplifiable code patterns
+    "T10",  # flake8-debugger — leftover debugger statements
+    "TRY",  # tryceratops — exception handling anti-patterns
+    "UP",   # pyupgrade — outdated syntax modernisation
+    "W",    # pycodestyle warnings — PEP 8 style warnings
+]
+ignore = [
+    "D100",    # missing docstring in public module
+    "D103",    # missing docstring in public function
+    "D104",    # missing docstring in public package
+    "D107",    # missing docstring in __init__ — args go in class docstring (Google style)
+    "D203",    # conflicts with D211
+    "D213",    # conflicts with D212
+    "TRY003",  # long exception messages — too pedantic for simple raises
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["ANN", "D"]
+"tests/**/*.py" = ["ANN", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

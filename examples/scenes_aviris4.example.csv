@@ -1,0 +1,4 @@
+scene_id,radiance,metadata,shadow,cloud,product,background_group
+line_0001,/path/to/L1/line_0001_rdn.nc,/path/to/L1/line_0001_rdn_metadata.nc,/path/to/L2/line_0001_rdn_shadow.nc,,/path/to/L2/line_0001_rdn_CH4.nc,aviris4:campaign-day1
+line_0002,/path/to/L1/line_0002_rdn.nc,/path/to/L1/line_0002_rdn_metadata.nc,,,/path/to/L2/line_0002_rdn_CH4.nc,aviris4:campaign-day1
+line_0003,/path/to/L1/line_0003_rdn.nc,/path/to/L1/line_0003_rdn_metadata.nc,/path/to/L2/line_0003_rdn_shadow.nc,/path/to/L2/line_0003_rdn_cloud.nc,,

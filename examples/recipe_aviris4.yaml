@@ -1,0 +1,108 @@
+# AVIRIS-4 campaign: Lambert-Beer radiance embedding with the libRadtran/ARTS
+# unit-absorption provider and the AVIRIS-4 matched filter. All paths below
+# are placeholders.
+#
+# SPECTRA never searches directories or parses file names: every flight line
+# is listed with its files in a scene table (CSV or YAML, see
+# examples/scenes_aviris4.example.csv). Columns: scene_id (optional),
+# radiance, metadata (required), shadow, cloud, product (optional),
+# background_group (optional); other columns are kept as metadata and can be
+# used as filters.
+#
+# One-time preparation of the background catalogue (plume-free flight lines):
+#   spectra catalog build --sensor aviris4 --scenes /path/to/scenes.csv \
+#       --out /path/to/catalog [--no-inspect] [--filter key=value]
+#   spectra catalog qa /path/to/catalog --subsample 8
+#   spectra catalog status /path/to/catalog \
+#       --scene-id <id> --set eligible --reason "manual review" --by <name>
+#
+# Generation (see docs/recipes.md):
+#   spectra generate examples/recipe_aviris4.yaml --dry-run
+#   spectra slurm examples/recipe_aviris4.yaml        # then sbatch the script
+#   spectra finalize examples/recipe_aviris4.yaml
+#   spectra export-prism examples/recipe_aviris4.yaml --compose
+recipe_version: 1
+name: av4-campaign
+seed: 20261014
+n_samples: 2000
+method: radiance
+sensor:
+  name: aviris4
+  scenes: /path/to/scenes.csv # scene table; used when catalog.path is null
+  options: {}
+catalog:
+  path: /path/to/catalog # built from the same scene table
+  status: [eligible]
+  filters: {}
+plumes:
+  files:
+    - /path/to/plumes/*.plumecolumn.nc
+  time_policy:
+    mode: uniform
+    min_simulation_time_s: 1800.0 # skip the LES spin-up
+  emission:
+    distribution: loguniform
+    low: 3.0
+    high: 1000.0
+    units: kg h-1
+  column_convention: vertical
+placement:
+  mode: anchor
+  rotations_deg: {mode: uniform_int, low: 0, high: 359}
+  flips: {none: 0.5, x: 0.25, y: 0.25}
+  anchor_corners: [lower left, lower right, upper left, upper right]
+  min_outside_fraction: 0.0
+  max_outside_fraction: 0.0
+  max_attempts: 10000
+  window_shape: [256, 256]
+embedding:
+  regridder: polygon
+  regridder_options: {}
+  lut:
+    enhancement_min_ppm: 0.01
+    enhancement_max_ppm: 200.0
+    n_nodes: 12
+    layer_height_m: 1000.0
+    radiance_leg: both
+  unit_absorption:
+    provider: libradtran_arts
+    options:
+      uvspec_path: /path/to/data-unit-abs-spec/spectrum
+      sol_reference_path: /path/to/data-unit-abs-spec/spectrum
+      arts_path: /path/to/data-unit-abs-spec/arts
+      scenario: midlatitude-summer
+      xch4_bg: 1.93191
+retrieval:
+  retriever: aviris4_mf
+  options:
+    noise_model_file: /path/to/emit_noise.txt
+    parallel: false # one shard per core; the array script sets OMP_NUM_THREADS=1
+  statistics_scope: window
+  target_enhancement_ppm: 10.0
+  band_windows_nm: [[1480.0, 1800.0], [2080.0, 2500.0]]
+  min_n_samples: 7000
+  exclude_injected_from_background: false
+negatives:
+  fraction: 0.3
+labels:
+  detection_snr: 2.0
+  ambiguous_snr: 1.0
+split:
+  ratios: {train: 0.7, val: 0.15, test: 0.15}
+  group_by: [background_group, les_case]
+  seed: null # defaults to the recipe seed
+output:
+  root: /path/to/dataset_v1
+  product_format: zarr
+  dataset_version: av4-campaign-v1
+compute:
+  chunks: {}
+  slurm:
+    account: s1234 # replace with the project account
+    run_time: "04:00:00"
+    array_size: 20
+    tasks_per_job: 16
+    partition: normal
+    cluster: eiger
+    processor: cpu
+    uenv: null
