@@ -1,0 +1,144 @@
+{
+  "built_utc": "2026-10-19T23:17:00.808398+00:00",
+  "aviris4_ch4_version": "1.1.1.dev13+gd28d8d547",
+  "aviris4_ch4_git": {
+    "commit": "2b1d8c5b725da909a07ee2a33b2f19b0e1a20af6",
+    "dirty": true
+  },
+  "spectra_version": "0.1.1.dev6+gd2cf47089.d20261019",
+  "band_sources": {
+    "emit": "EMIT_L1B_RAD_001_20260819T180247_2623112_032.nc",
+    "aviris4": "M019_240928_POL_Methane_Line_1425_092927_000_rdn.nc"
+  },
+  "resources": {
+    "tau_files": [
+      "UVSPEC_moltau_midlatitude-summer_all_1000-2500nm-0.001nm.nc",
+      "UVSPEC_moltau_midlatitude-summer_CH4_1000-2500nm-0.001nm.nc",
+      "UVSPEC_moltau_midlatitude-summer_CO2_1000-2500nm-0.001nm.nc",
+      "UVSPEC_moltau_midlatitude-summer_H2O_1000-2500nm-0.001nm.nc"
+    ],
+    "solar_reference": "hybrid_reference_spectrum_p005nm_resolution_c2021-03-04_with_unc.nc"
+  },
+  "cases": {
+    "emit": {
+      "sensor": "emit",
+      "lat": 32.1,
+      "lon": -102.9,
+      "time_utc": "2026-08-19T18:02:47",
+      "vza": 8.0,
+      "elevation": 150.0,
+      "altitude": 400000.0,
+      "backgrounds": {
+        "CH4": 1.95,
+        "CO2": 420.0,
+        "H2O": 5000.0
+      },
+      "gas": "CH4",
+      "scenario": "midlatitude-summer",
+      "wmin": 1000,
+      "wmax": 2500,
+      "rho": 1.0,
+      "sza": 22.921834370348584,
+      "layer_height": 1000.0,
+      "nodes_ppm": [
+        0.01,
+        0.024603830525241833,
+        0.060534847651482156,
+        0.14893891324883998,
+        0.3664467780188155,
+        0.9015994422895851,
+        2.2182799879745483,
+        5.4578184881661285,
+        13.428324112037103,
+        33.03882106905794,
+        81.28815543368908,
+        200.00000000000003
+      ],
+      "n_bands": 201,
+      "band_dtype": "float32"
+    },
+    "aviris4": {
+      "sensor": "aviris4",
+      "lat": 50.1,
+      "lon": 19.0,
+      "time_utc": "2024-09-28T07:29:27",
+      "vza": 12.0,
+      "elevation": 280.0,
+      "altitude": 4280.0,
+      "backgrounds": {
+        "CH4": 1.93191,
+        "CO2": null,
+        "H2O": null
+      },
+      "gas": "CH4",
+      "scenario": "midlatitude-summer",
+      "wmin": 1000,
+      "wmax": 2500,
+      "rho": 1.0,
+      "sza": 65.61199258990548,
+      "layer_height": 1000.0,
+      "nodes_ppm": [
+        0.01,
+        0.024603830525241833,
+        0.060534847651482156,
+        0.14893891324883998,
+        0.3664467780188155,
+        0.9015994422895851,
+        2.2182799879745483,
+        5.4578184881661285,
+        13.428324112037103,
+        33.03882106905794,
+        81.28815543368908,
+        200.00000000000003
+      ],
+      "n_bands": 202,
+      "band_dtype": "float32"
+    },
+    "aviris4_high": {
+      "sensor": "aviris4",
+      "lat": 46.5,
+      "lon": 8.0,
+      "time_utc": "2025-07-01T10:00:00",
+      "vza": 3.0,
+      "elevation": 1350.0,
+      "altitude": 5200.0,
+      "backgrounds": {
+        "CH4": 1.93191,
+        "CO2": null,
+        "H2O": null
+      },
+      "gas": "CH4",
+      "scenario": "midlatitude-summer",
+      "wmin": 1000,
+      "wmax": 2500,
+      "rho": 1.0,
+      "sza": 29.85459396235705,
+      "layer_height": 1000.0,
+      "nodes_ppm": [
+        0.01,
+        0.024603830525241833,
+        0.060534847651482156,
+        0.14893891324883998,
+        0.3664467780188155,
+        0.9015994422895851,
+        2.2182799879745483,
+        5.4578184881661285,
+        13.428324112037103,
+        33.03882106905794,
+        81.28815543368908,
+        200.00000000000003
+      ],
+      "n_bands": 202,
+      "band_dtype": "float32"
+    }
+  },
+  "sha256": {
+    "emit_lut.nc": "f892f4c909f79d8c2c0d1703865acd446cf6bc93e971b8b336bc4f04a62a963b",
+    "emit_target_10ppm.nc": "806589d4a02bf8ecb450f5954db1c199a53f6737bbcf327fc043463cd6de70d2",
+    "aviris4_lut.nc": "a4e2fa6d01131fd61feb9f8e2aed39f8aa1d6c854369075d76fd4ee9d6eb0539",
+    "aviris4_target_10ppm.nc": "e0e8367f8c6a897940512f90975d68545dc06fb01b0daae2210f8454f96c165b",
+    "aviris4_high_lut.nc": "d0d9e95c23b520670658df3c4b1c5edb58c834b126da1774e6c1bbdd61fdb173",
+    "aviris4_high_target_10ppm.nc": "ea9d4e0c3a2a2932b86b4808e08057db3ccf80feb2a033fe9300a1e84b720853",
+    "profiles.json": "f858684ffee80fe2dc67c1efa9872851c17a0fd0822e29310944f24dd58343f6"
+  }
+}

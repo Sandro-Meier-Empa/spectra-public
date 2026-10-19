@@ -44,3 +44,26 @@ change, and record why in the CHANGELOG.
 
 The real-data files are small crops of campaign data stored for regression
 testing only; they are not a data product.
+
+## Forward-model references
+
+`reference/` freezes the output of `aviris4_ch4.mf.UnitAbsorption` (aviris4-ch4
+commit `2b1d8c5`, `mf.py` unchanged since `6d4ed8b`) for three cases, so the
+libRadtran/ARTS port in `spectra.spectral.libradtran` is checked bit for bit on
+two sensors' band sets. Recorded with
+`scripts/golden/record_forward_model_reference.py`; `reference/record.json`
+lists the geometry (including the ephemeris solar zenith angle the original
+model derived), backgrounds, versions and SHA-256 digests.
+
+| Case | Bands | Geometry | Backgrounds |
+|---|---|---|---|
+| `emit` | 201 EMIT bands, 1000-2500 nm | vza 8 deg, elevation 150 m, altitude 400 km | CH4, CO2, H2O |
+| `aviris4` | 202 AVIRIS-4 bands, 1000-2500 nm | vza 12 deg, elevation 280 m, altitude 4280 m | CH4 |
+| `aviris4_high` | as `aviris4` | vza 3 deg, elevation 1350 m (second layer), altitude 5200 m | CH4 |
+
+Each case has `{case}_lut.nc` (absorption table, 12 nodes 0.01-200 ppm) and
+`{case}_target_10ppm.nc` (unit absorption spectrum at 10 ppm with the band
+`fwhm`). `reference/profiles.json` holds the ARTS profiles parsed with `lxml`
+and their column averages; `inputs/arts/midlatitude-summer/` holds the ARTS
+profile files themselves (2 KB each) so the parser tests run without the full
+resources.
