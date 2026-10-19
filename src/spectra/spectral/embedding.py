@@ -1,10 +1,9 @@
-"""Lambert-Beer embedding of simulated columns into radiance and products.
+"""Lambert-Beer embedding of simulated columns into radiance.
 
-Ported from ``aviris4_ch4.embedding`` without changing the numerics: product
-embedding adds a vertical plume column to a retrieved column map, radiance
-embedding attenuates a cube with a column already placed on the radiance
-grid. The tabulated optical depths already contain the air-mass factor, so
-the default input is a vertical column.
+Ported from ``aviris4_ch4.embedding`` without changing the numerics: the
+radiance embedding attenuates a cube with a column already placed on the
+radiance grid. The tabulated optical depths already contain the air-mass
+factor, so the default input is a vertical column.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ COLUMN_UNITS = "kg/m2"
 PPM_METRE_UNITS = "ppm-m"
 
 ColumnConvention = Literal["vertical", "slant"]
-EmbeddingMethod = Literal["product", "radiance"]
+EmbeddingMethod = Literal["radiance"]
 
 
 def _band_dimension(radiance: xr.DataArray) -> str:
@@ -215,69 +214,6 @@ def embed_column_in_radiance(
     return embedded
 
 
-def embed_column_in_product(
-    observed_column: xr.DataArray,
-    simulated_column: xr.DataArray,
-    *,
-    output_units: str | None = None,
-    gas: str = "ch4",
-) -> xr.DataArray:
-    """Add a simulated plume column to an observed column.
-
-    Args:
-        observed_column: Retrieved column on the product's spatial grid. Its
-            ``units`` attribute defines the input units.
-        simulated_column: Simulated column on the same spatial grid. Its
-            ``units`` attribute defines the input units.
-        output_units: Units of the combined column. The observed units are used
-            when omitted.
-        gas: Gas name used for unit conversion.
-
-    Returns:
-        Combined observed and simulated column in the requested units.
-
-    Raises:
-        ValueError: If units or the spatial grids are invalid.
-    """
-    observed_units = observed_column.attrs.get("units")
-    if observed_units is None:
-        raise ValueError(
-            "Units of 'observed_column' are unknown. Set its 'units' attribute."
-        )
-    simulated_units = simulated_column.attrs.get("units")
-    if simulated_units is None:
-        raise ValueError(
-            "Units of 'simulated_column' are unknown. Set its 'units' attribute."
-        )
-    units = output_units or observed_units
-
-    spatial_dims = tuple(observed_column.dims)
-    _validate_spatial_dimensions(simulated_column, spatial_dims, "simulated_column")
-
-    observed_column, simulated_column = xr.align(
-        observed_column, simulated_column, join="exact"
-    )
-    simulated_column = simulated_column.transpose(*spatial_dims)
-
-    observed = cast(
-        xr.DataArray,
-        ucat.convert_columns(
-            observed_column,
-            from_unit=observed_units,
-            to_unit=units,
-            molar_mass=gas,
-            warn=False,
-        ),
-    )
-    simulated = _nonnegative_column(simulated_column, simulated_units, gas, units)
-
-    embedded = (observed + simulated).transpose(*spatial_dims)
-    embedded.name = observed_column.name
-    embedded.attrs = dict(observed_column.attrs)
-    embedded.attrs["units"] = units
-    return embedded
-
-
 def injected_column(
     column: xr.DataArray,
     *,
@@ -337,7 +273,7 @@ def embedding_provenance(
     """Return embedding provenance attributes for an embedded dataset.
 
     Args:
-        method: Embedding method, ``"product"`` or ``"radiance"``.
+        method: Embedding method, ``"radiance"``.
         geometric_amf: Geometric air mass factor of the radiance embedding.
         lut: Absorption table whose descriptive attributes are copied with an
             ``embedding_`` prefix.
@@ -383,7 +319,6 @@ __all__ = [
     "PPM_METRE_UNITS",
     "ColumnConvention",
     "EmbeddingMethod",
-    "embed_column_in_product",
     "embed_column_in_radiance",
     "embedding_provenance",
     "injected_column",

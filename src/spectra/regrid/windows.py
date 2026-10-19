@@ -1,4 +1,4 @@
-"""Index windows of sensor and map grids covering a placed plume column.
+"""Index windows of sensor grids covering a placed plume column.
 
 The sensor-grid helpers only ever load small blocks of the (possibly lazy)
 pixel-centre geometry: the anchor neighbourhood, the four border strips that
@@ -14,14 +14,9 @@ import math
 import numpy as np
 
 from spectra.contracts.errors import ContractError
-from spectra.geometry.corners import (
-    axis_nodes,
-    cell_areas,
-    nodes_to_cell_vertices,
-)
 from spectra.geometry.placement import PlacedColumn
 from spectra.geometry.swath import anchor_pixel_spacing, swath_polygon, window_polygon
-from spectra.types import MapGrid, Placement, SceneGeometry, Window
+from spectra.types import Placement, SceneGeometry, Window
 
 # Number of pixel centres loaded by the coarse pass of ``support_window``.
 _COARSE_SAMPLES = 20_000
@@ -201,83 +196,4 @@ def support_window(
     return window
 
 
-def _axis_window(
-    centres: np.ndarray, low: float, high: float, margin: int
-) -> slice | None:
-    """Return the index slice of cells overlapping ``[low, high]`` on one axis."""
-    nodes = axis_nodes(centres)
-    size = centres.size
-    ascending = nodes[-1] > nodes[0]
-    ordered = nodes if ascending else nodes[::-1]
-    first = int(np.searchsorted(ordered, low, side="right")) - 1
-    last = int(np.searchsorted(ordered, high, side="left")) - 1
-    first = max(first, 0)
-    last = min(last, size - 1)
-    if first > last:
-        return None
-    if not ascending:
-        first, last = size - 1 - last, size - 1 - first
-    return slice(max(0, first - margin), min(size, last + 1 + margin))
-
-
-def map_window(
-    placed: PlacedColumn, grid: MapGrid, margin: int = 1
-) -> tuple[slice, slice]:
-    """Return the ``(y, x)`` index slices of map cells covering the support.
-
-    Cells intersecting the bounding box of the placed support are selected,
-    padded by ``margin`` cells and clipped to the grid.
-
-    Raises:
-        ContractError: If the support does not overlap the grid.
-    """
-    if margin < 0:
-        raise ContractError("margin must be non-negative.")
-    xmin, ymin, xmax, ymax = placed.support_polygon.bounds
-    x_slice = _axis_window(grid.x, xmin, xmax, margin)
-    y_slice = _axis_window(grid.y, ymin, ymax, margin)
-    if x_slice is None or y_slice is None:
-        raise ContractError("The placed support does not overlap the map grid.")
-    return y_slice, x_slice
-
-
-def map_anchor_centre(grid: MapGrid, placement: Placement) -> tuple[float, float]:
-    """Return the centre of the anchor cell ``(y[anchor_across], x[anchor_along])``."""
-    along = int(placement.anchor_along)
-    across = int(placement.anchor_across)
-    if along >= grid.x.size or across >= grid.y.size:
-        raise ContractError(
-            f"Anchor cell (across={across}, along={along}) lies outside the map "
-            f"grid of shape {(grid.y.size, grid.x.size)}."
-        )
-    return float(grid.x[along]), float(grid.y[across])
-
-
-def map_window_nodes(
-    grid: MapGrid, y_slice: slice, x_slice: slice
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return ``(ny + 1, nx + 1)`` node coordinates of a map window."""
-    x_nodes = axis_nodes(grid.x)[x_slice.start : x_slice.stop + 1]
-    y_nodes = axis_nodes(grid.y)[y_slice.start : y_slice.stop + 1]
-    node_x, node_y = np.meshgrid(x_nodes, y_nodes, indexing="xy")
-    return node_x, node_y
-
-
-def map_window_cells(
-    grid: MapGrid, y_slice: slice, x_slice: slice
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return ``(vertices_x, vertices_y, areas)`` of the cells in a map window."""
-    node_x, node_y = map_window_nodes(grid, y_slice, x_slice)
-    vx = nodes_to_cell_vertices(node_x)
-    vy = nodes_to_cell_vertices(node_y)
-    return vx, vy, cell_areas(vx, vy)
-
-
-__all__ = [
-    "anchor_pixel_centre",
-    "map_anchor_centre",
-    "map_window",
-    "map_window_cells",
-    "map_window_nodes",
-    "support_window",
-]
+__all__ = ["anchor_pixel_centre", "support_window"]

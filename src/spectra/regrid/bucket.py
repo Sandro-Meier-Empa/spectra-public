@@ -26,15 +26,9 @@ from spectra.geometry.placement import PlacedColumn, place_column
 from spectra.geometry.swath import window_nodes
 from spectra.geometry.transform import transform_coordinates
 from spectra.regrid.base import RegridResult, check_mass
-from spectra.regrid.results import finalize_result, map_data_array, scene_data_array
-from spectra.regrid.windows import (
-    anchor_pixel_centre,
-    map_anchor_centre,
-    map_window,
-    map_window_nodes,
-    support_window,
-)
-from spectra.types import MapGrid, Placement, SceneGeometry, Window
+from spectra.regrid.results import finalize_result, scene_data_array
+from spectra.regrid.windows import anchor_pixel_centre, support_window
+from spectra.types import Placement, SceneGeometry, Window
 
 
 def subsample_points(
@@ -253,43 +247,6 @@ class BucketRegridder:
     ) -> xr.DataArray:
         """Return the column on the sensor grid, cropped to ``window``."""
         return self.regrid_to_scene(column, scene, placement, window=window).data
-
-    def regrid_to_map(
-        self, column: xr.DataArray, grid: MapGrid, placement: Placement
-    ) -> RegridResult:
-        """Place ``column`` on a regular map grid and return the full result.
-
-        The anchor cell is ``(grid.y[anchor_across], grid.x[anchor_along])``.
-        """
-        placed = place_column(
-            column,
-            crs=grid.crs,
-            anchor_target_xy=map_anchor_centre(grid, placement),
-            placement=placement,
-        )
-        y_slice, x_slice = map_window(placed, grid)
-        centre_x, centre_y = np.meshgrid(
-            grid.x[x_slice], grid.y[y_slice], indexing="xy"
-        )
-        node_x, node_y = map_window_nodes(grid, y_slice, x_slice)
-        values, target_area, inside, target_mass = self._regrid(
-            placed, centre_x, centre_y, node_x, node_y
-        )
-        data = map_data_array(
-            values,
-            grid=grid,
-            y_slice=y_slice,
-            x_slice=x_slice,
-            placed=placed,
-            name=column.name,
-        )
-        return self._finalize(data, placed, target_area, inside, target_mass)
-
-    def to_map(
-        self, column: xr.DataArray, grid: MapGrid, placement: Placement
-    ) -> xr.DataArray:
-        """Return the column on a regular map grid on dims ``(y, x)``."""
-        return self.regrid_to_map(column, grid, placement).data
 
 
 __all__ = ["BucketRegridder", "regrid_buckets", "subsample_points"]

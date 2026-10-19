@@ -31,8 +31,8 @@ from spectra.regrid import (
 )
 from spectra.regrid.base import check_mass
 from spectra.regrid.polygon import clip_areas
-from spectra.regrid.windows import anchor_pixel_centre, map_window
-from spectra.types import ANCHOR_CORNERS, MapGrid, Placement, SceneGeometry, Window
+from spectra.regrid.windows import anchor_pixel_centre
+from spectra.types import ANCHOR_CORNERS, Placement, SceneGeometry, Window
 
 CRS = pyproj.CRS.from_epsg(32632)
 ORIGIN = (500000.0, 5200000.0)
@@ -351,45 +351,6 @@ def test_rotated_target_lattice_conserves_mass(method, rotation):
     assert swath_polygon(geometry).symmetric_difference(expected).area < 1e-6
 
 
-@pytest.mark.parametrize("method", list(REGRIDDERS))
-@pytest.mark.parametrize("descending", [True, False])
-def test_to_map_on_regular_grid(method, descending):
-    regridder, rtol = REGRIDDERS[method]
-    y = 5200000.0 + 60.0 * np.arange(40)
-    grid = MapGrid(
-        x=500000.0 + 60.0 * np.arange(50), y=y[::-1] if descending else y, crs=CRS
-    )
-    column = make_column(100, 60, 2.0, 2.0, "gaussian")
-    placement = Placement(anchor_along=10, anchor_across=20, rotation_deg=37, flip="x")
-    result = regridder.regrid_to_map(column, grid, placement)
-    data = regridder.to_map(column, grid, placement)
-    assert data.dims == ("y", "x")
-    assert data.shape == result.data.shape
-    assert abs(result.target_mass - result.source_mass) / result.source_mass < rtol
-    assert integrated_mass(result) == pytest.approx(result.source_mass, rel=rtol)
-    assert np.allclose(result.target_area, 3600.0)
-    assert data.attrs["geometry_space"] == "map"
-    assert data.attrs["regrid_method"] == method
-    y_slice = slice(data.attrs["window_y_start"], data.attrs["window_y_stop"])
-    x_slice = slice(data.attrs["window_x_start"], data.attrs["window_x_stop"])
-    assert np.array_equal(data["x"].values, grid.x[x_slice])
-    assert np.array_equal(data["y"].values, grid.y[y_slice])
-    assert "spatial_ref" in data.coords
-    # The anchor cell is (y[anchor_across], x[anchor_along]).
-    placed = place_column(
-        column,
-        crs=CRS,
-        anchor_target_xy=(float(grid.x[10]), float(grid.y[20])),
-        placement=placement,
-    )
-    assert map_window(placed, grid) == (y_slice, x_slice)
-    xmin, ymin, xmax, ymax = placed.support_polygon.bounds
-    assert data["x"].values.min() - 30.0 <= xmin
-    assert data["x"].values.max() + 30.0 >= xmax
-    assert data["y"].values.min() - 30.0 <= ymin
-    assert data["y"].values.max() + 30.0 >= ymax
-
-
 def test_to_scene_honours_explicit_window():
     scene = make_scene(80, 80, 10.0, 10.0)
     column = make_column(100, 60, 2.0, 2.0, "gaussian")
@@ -436,9 +397,6 @@ def test_invalid_options_and_placements_raise():
         PolygonRegridder().to_scene(column, scene, Placement(anchor_along=20))
     with pytest.raises(ContractError, match="outside"):
         BucketRegridder().to_scene(column, scene, Placement(anchor_across=25))
-    grid = MapGrid(x=np.arange(5.0), y=np.arange(4.0), crs=CRS)
-    with pytest.raises(ContractError, match="outside"):
-        PolygonRegridder().to_map(column, grid, Placement(anchor_along=7))
     nan_scene = scene.copy(deep=True)
     nan_scene["x"][3, 3] = np.nan
     with pytest.raises(ContractError, match="finite"):

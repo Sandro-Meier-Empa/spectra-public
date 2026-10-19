@@ -1,21 +1,14 @@
 """Embed one plume snapshot into one scene: placement, regridding, embedding.
 
-The functions here are the building blocks shared by the ``spectra embed``
-command and the recipe-driven generator. Sensor-specific behaviour enters only
-through the adapter, provider, retriever and regridder plugins.
-
-The radiance method runs as three steps that can be called one after another:
-:func:`place_and_regrid` (locate and regrid the column), :func:`embed_radiance_sample`
-(Lambert-Beer embedding into the window or the full scene) and
-:func:`retrieve_embedded` (retrieval of the embedded radiance with any
-registered retriever). :func:`embed_sample` chains all of them. The embedded
-radiance keeps every band it is given; bands the unit-absorption provider does
-not cover pass through unattenuated.
+The radiance method runs as two steps: :func:`place_and_regrid` (locate and
+regrid the column) and :func:`embed_radiance_sample` (Lambert-Beer embedding
+into the window or the full scene). The embedded radiance keeps every band it
+is given; bands the unit-absorption provider does not cover pass through
+unattenuated.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -23,23 +16,18 @@ import numpy as np
 import xarray as xr
 
 import spectra
-from spectra.contracts.column_product import (
-    CANONICAL_COLUMN_UNITS,
-    convert_column_units,
-)
 from spectra.contracts.errors import ContractError
 from spectra.contracts.sensor_scene import select_bands
-from spectra.protocols import Regridder, Retriever, UnitAbsorptionProvider
+from spectra.contracts.units import CANONICAL_COLUMN_UNITS, convert_column_units
+from spectra.protocols import Regridder, UnitAbsorptionProvider
 from spectra.types import (
     Placement,
     RadianceLeg,
-    RetrievalSettings,
     SpectralResponse,
     ViewingGeometry,
     Window,
 )
 
-EmbeddingMethod = Literal["radiance", "product"]
 EmbeddingExtent = Literal["window", "scene"]
 EMBEDDING_EXTENTS: tuple[str, ...] = ("window", "scene")
 
@@ -150,31 +138,6 @@ def provider_bands(provider: UnitAbsorptionProvider, scene: xr.Dataset) -> xr.Da
         return scene
     lower, upper = (float(value) for value in span)
     return select_bands(scene, ((lower, upper),))
-
-
-def target_spectrum(
-    provider: UnitAbsorptionProvider,
-    scene: xr.Dataset,
-    settings: RetrievalSettings,
-    spec: EmbeddingSpec,
-    *,
-    window: Window | None = None,
-) -> xr.Dataset:
-    """Return the retrieval target spectrum on the scene's retrieval bands.
-
-    Only bands inside ``settings.band_windows_nm`` and the provider's spectral
-    range are modelled, so full-spectrum cubes need no forward model outside
-    the retrieval windows.
-    """
-    bands = select_bands(provider_bands(provider, scene), settings.band_windows_nm)
-    return provider.spectrum(
-        SpectralResponse.from_scene(bands),
-        ViewingGeometry.from_scene(scene, window=window),
-        enhancement_ppm=settings.target_enhancement_ppm,
-        gas=spec.gas.upper(),
-        layer_height_m=spec.layer_height_m,
-        radiance_leg=spec.radiance_leg,
-    )
 
 
 def build_lut(
@@ -408,198 +371,6 @@ def embed_radiance_sample(
     return embedded
 
 
-_PROVENANCE_PREFIXES = ("window_", "regrid_", "plume_", "anchor_", "placement_")
-_PROVENANCE_KEYS = ("rotation_deg", "flip", "emission_scale", "time_index")
-
-
-def _provenance(attrs: Mapping[Any, Any]) -> dict[Any, Any]:
-    """Return the window, regridding and placement attributes of an injected column."""
-    return {
-        key: value
-        for key, value in attrs.items()
-        if key.startswith(_PROVENANCE_PREFIXES) or key in _PROVENANCE_KEYS
-    }
-
-
-def retrieve_embedded(
-    embedded: xr.Dataset,
-    target: xr.Dataset | None = None,
-    *,
-    retriever: Retriever,
-    settings: RetrievalSettings,
-    gas: str = "ch4",
-    background_stats: xr.Dataset | None = None,
-    provider: UnitAbsorptionProvider | None = None,
-    spec: EmbeddingSpec | None = None,
-) -> xr.Dataset:
-    """Retrieve the embedded window and carry the injected truth and provenance.
-
-    With ``settings.exclude_injected_from_background`` the retriever receives
-    a ``plume_mask`` marking pixels whose injected column exceeds
-    ``settings.plume_mask_threshold_kg_m2``, unless the scene already has one.
-
-    Args:
-        embedded: Embedded window or scene from :func:`embed_radiance_sample`.
-        target: Retrieval target spectrum; built with ``provider`` when omitted.
-        retriever: Retriever plugin.
-        settings: Retrieval settings.
-        gas: Lower-case gas name of the injected column.
-        background_stats: Precomputed background statistics.
-        provider: Unit-absorption provider building a missing target.
-        spec: Radiance-embedding settings of the target spectrum.
-
-    Raises:
-        ContractError: If neither a target nor a provider is given, or if
-            plume masking is requested but the scene carries no injected
-            column.
-    """
-    if target is None:
-        if provider is None:
-            raise ContractError("Retrieval needs a target spectrum or a provider.")
-        spec = spec or EmbeddingSpec(gas=gas)
-        target = target_spectrum(provider, embedded, settings, spec)
-    injected = f"injected_{gas}_mass"
-    if settings.exclude_injected_from_background and "plume_mask" not in embedded:
-        if injected not in embedded:
-            raise ContractError(
-                f"exclude_injected_from_background needs '{injected}' in the scene."
-            )
-        threshold = float(settings.plume_mask_threshold_kg_m2)
-        plume_mask = (embedded[injected] > threshold).assign_attrs(
-            long_name="injected plume excluded from the background statistics",
-            threshold_kg_m2=threshold,
-        )
-        embedded = embedded.assign(plume_mask=plume_mask)
-    product = retriever.retrieve(
-        embedded, target, settings=settings, background_stats=background_stats
-    )
-    if injected in embedded:
-        product[injected] = embedded[injected]
-    product.attrs.update(
-        {
-            key: value
-            for key, value in embedded.attrs.items()
-            if key.startswith("embedding_")
-        }
-    )
-    if injected in embedded:
-        product.attrs.update(_provenance(embedded[injected].attrs))
-    product.attrs["embedding_method"] = "radiance"
-    product.attrs["spectra_version"] = spectra.__version__
-    return product
-
-
-def embed_product(
-    product_window: xr.Dataset,
-    injected: xr.DataArray,
-    *,
-    gas: str = "ch4",
-) -> xr.Dataset:
-    """Add the injected column to a retrieved column product (additive method)."""
-    from spectra.spectral.embedding import (
-        embed_column_in_product,
-        embedding_provenance,
-        injected_column,
-    )
-
-    name = f"{gas}_mass"
-    if name not in product_window:
-        raise ContractError(f"Product lacks '{name}'.")
-    column = injected.drop_vars(
-        [c for c in injected.coords if c not in product_window.coords], errors="ignore"
-    )
-    embedded = product_window.copy()
-    embedded[name] = embed_column_in_product(
-        product_window[name], column, output_units=CANONICAL_COLUMN_UNITS, gas=gas
-    )
-    embedded[f"injected_{gas}_mass"] = injected_column(
-        column, gas=gas, convention="vertical"
-    )
-    embedded[f"injected_{gas}_mass"].attrs.update(
-        {key: value for key, value in injected.attrs.items() if key != "units"}
-    )
-    embedded.attrs.update(
-        embedding_provenance(
-            method="product",
-            sensor=str(product_window.attrs.get("sensor", "")),
-            regridder=str(injected.attrs.get("regrid_method", "")),
-        )
-    )
-    embedded.attrs.update(_provenance(injected.attrs))
-    embedded.attrs["embedding_method"] = "product"
-    return embedded
-
-
-def embed_sample(
-    scene: xr.Dataset,
-    column: xr.DataArray,
-    placement: Placement,
-    *,
-    method: EmbeddingMethod,
-    regridder: Regridder,
-    spec: EmbeddingSpec | None = None,
-    provider: UnitAbsorptionProvider | None = None,
-    retriever: Retriever | None = None,
-    settings: RetrievalSettings | None = None,
-    target: xr.Dataset | None = None,
-    product: xr.Dataset | None = None,
-    window: Window | None = None,
-    extent: EmbeddingExtent = "window",
-) -> xr.Dataset:
-    """Run the full embedding of one snapshot into one scene.
-
-    Args:
-        scene: ``SensorScene`` (radiance method) or any dataset carrying the
-            geometry the regridder needs (product method).
-        column: ``(y, x)`` plume snapshot with ``units``.
-        placement: Anchor, rotation and reflection.
-        method: ``"radiance"`` (Lambert-Beer + retrieval) or ``"product"``.
-        regridder: Conservative regridder plugin.
-        spec: Radiance-embedding settings.
-        provider: Unit-absorption provider (radiance method).
-        retriever: Retriever plugin (radiance method).
-        settings: Retrieval settings (radiance method).
-        target: Retrieval target spectrum; built with ``provider`` when omitted.
-        product: Retrieved column product in sensor space (product method).
-        window: Optional explicit embedding window.
-        extent: Retrieve the embedding window or the full embedded scene
-            (radiance method).
-
-    Returns:
-        Column product on the embedding window (or the full scene) carrying
-        ``injected_*_mass`` and the full provenance.
-    """
-    spec = spec or EmbeddingSpec()
-    injected = place_and_regrid(
-        scene, column, placement, regridder=regridder, window=window
-    )
-    if method == "product":
-        if product is None:
-            raise ContractError("The product method needs the retrieved product.")
-        product_window, _ = scene_window(product, injected)
-        return embed_product(product_window, injected, gas=spec.gas)
-    if provider is None or retriever is None:
-        raise ContractError("The radiance method needs a provider and a retriever.")
-    settings = settings or RetrievalSettings(statistics_scope="window")
-    embedded = embed_radiance_sample(
-        scene,
-        injected,
-        provider,
-        spec=spec,
-        band_windows_nm=settings.band_windows_nm,
-        extent=extent,
-    )
-    return retrieve_embedded(
-        embedded,
-        target,
-        retriever=retriever,
-        settings=settings,
-        gas=spec.gas,
-        provider=provider,
-        spec=spec,
-    )
-
-
 def log_nodes(minimum: float, maximum: float, count: int) -> tuple[float, ...]:
     """Return logarithmically spaced absorption-table nodes."""
     if minimum <= 0 or maximum <= minimum or count < 2:
@@ -613,19 +384,14 @@ def log_nodes(minimum: float, maximum: float, count: int) -> tuple[float, ...]:
 __all__ = [
     "EMBEDDING_EXTENTS",
     "EmbeddingExtent",
-    "EmbeddingMethod",
     "EmbeddingSpec",
     "build_lut",
-    "embed_product",
     "embed_radiance",
     "embed_radiance_sample",
-    "embed_sample",
     "embedded_scene",
     "log_nodes",
     "place_and_regrid",
     "provider_bands",
-    "retrieve_embedded",
     "scene_window",
     "snapshot_column",
-    "target_spectrum",
 ]

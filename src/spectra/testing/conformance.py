@@ -1,4 +1,4 @@
-"""Conformance checks for sensor adapters and retrievers.
+"""Conformance checks for sensor adapters.
 
 The checks raise ``AssertionError`` with a message naming the plugin and the
 violated requirement, so they can run inside pytest or ad hoc on a real
@@ -12,17 +12,15 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
-from spectra.contracts.column_product import validate_column_product
 from spectra.contracts.errors import ContractError, MissingExtraError
 from spectra.contracts.sensor_scene import (
     PLATFORMS,
     SPATIAL_DIMS,
     validate_sensor_scene,
 )
-from spectra.protocols import Retriever, SensorAdapter, SupportsProduct
+from spectra.protocols import SensorAdapter
 from spectra.registry import list_plugins, load_plugin
 from spectra.types import (
-    RetrievalSettings,
     SceneRecord,
     SpectralResponse,
     ViewingGeometry,
@@ -138,127 +136,6 @@ def run_sensor_conformance(adapter: object, record: SceneRecord) -> None:
             f"geometry: {error}"
         ) from error
 
-    if isinstance(adapter, SupportsProduct) and record.has_product:
-        product = adapter.open_product(record)
-        _check(
-            isinstance(product, xr.Dataset),
-            f"{tag} open_product() must return a Dataset.",
-        )
-        try:
-            product_info = validate_column_product(product)
-        except ContractError as error:
-            raise AssertionError(
-                f"{tag} open_product() violates the ColumnProduct contract: {error}"
-            ) from error
-        _check(
-            product_info.sensor == name and product_info.scene_id == record.scene_id,
-            f"{tag} product attrs sensor/scene_id differ from the record.",
-        )
-        if product_info.geometry_space == "sensor":
-            for dim in SPATIAL_DIMS:
-                _check(
-                    product.sizes[dim] == scene.sizes[dim],
-                    f"{tag} product size along {dim!r} differs from the scene.",
-                )
-
-
-def run_retriever_conformance(
-    retriever: object,
-    scene: xr.Dataset,
-    target: xr.Dataset,
-    settings: RetrievalSettings,
-) -> xr.Dataset:
-    """Check that a retriever turns a scene into a valid column product.
-
-    Args:
-        retriever: Candidate retriever.
-        scene: ``SensorScene`` dataset.
-        target: Unit absorption spectrum used as retrieval target.
-        settings: Retrieval settings.
-
-    Returns:
-        The retrieved product.
-
-    Raises:
-        AssertionError: Naming the first violated requirement.
-    """
-    _check(
-        isinstance(retriever, Retriever),
-        f"{type(retriever).__name__} does not implement the Retriever protocol.",
-    )
-    assert isinstance(retriever, Retriever)
-    tag = f"[{retriever.name}]"
-    product = retriever.retrieve(scene, target, settings=settings)
-    _check(isinstance(product, xr.Dataset), f"{tag} retrieve() must return a Dataset.")
-    try:
-        info = validate_column_product(product)
-    except ContractError as error:
-        raise AssertionError(
-            f"{tag} retrieve() violates the ColumnProduct contract: {error}"
-        ) from error
-    _check(
-        info.geometry_space == "sensor",
-        f"{tag} retrieve() must return a sensor-space product.",
-    )
-    for dim in SPATIAL_DIMS:
-        _check(
-            product.sizes[dim] == scene.sizes[dim],
-            f"{tag} product size along {dim!r} differs from the scene.",
-        )
-    for coordinate in ("lat", "lon", "x", "y"):
-        _check(
-            coordinate in product, f"{tag} product lacks the {coordinate!r} coordinate."
-        )
-        _check(
-            bool(
-                np.allclose(
-                    np.asarray(product[coordinate].values, dtype=float),
-                    np.asarray(scene[coordinate].values, dtype=float),
-                    equal_nan=True,
-                )
-            ),
-            f"{tag} product coordinate {coordinate!r} differs from the scene.",
-        )
-    for attribute in ("sensor", "scene_id", "background_group"):
-        _check(
-            product.attrs.get(attribute) == scene.attrs.get(attribute),
-            f"{tag} product attr {attribute!r} differs from the scene.",
-        )
-    _check(
-        product.attrs.get("retriever") == retriever.name,
-        f"{tag} product attr 'retriever' must equal retriever.name.",
-    )
-    valid = np.asarray(product["retrieval_valid"].values, dtype=bool)
-    _check(bool(valid.any()), f"{tag} retrieval_valid is False everywhere.")
-    uncertainty = np.asarray(product["ch4_mass_uncertainty"].values, dtype=float)
-    _check(
-        bool(np.all(np.isfinite(uncertainty[valid]) & (uncertainty[valid] > 0))),
-        f"{tag} ch4_mass_uncertainty must be finite and positive where valid.",
-    )
-    mass = np.asarray(product["ch4_mass"].values, dtype=float)
-    _check(
-        bool(np.all(np.isfinite(mass[valid]))),
-        f"{tag} ch4_mass must be finite wherever retrieval_valid.",
-    )
-
-    stats = retriever.background_statistics(scene, settings=settings)
-    _check(
-        isinstance(stats, xr.Dataset),
-        f"{tag} background_statistics() must return a Dataset.",
-    )
-    if settings.statistics_scope == "cached_scene":
-        cached = retriever.retrieve(
-            scene, target, settings=settings, background_stats=stats
-        )
-        try:
-            xr.testing.assert_allclose(cached["ch4_mass"], product["ch4_mass"])
-        except AssertionError as error:
-            raise AssertionError(
-                f"{tag} retrieve() with cached background statistics differs from "
-                f"the scene-computed result: {error}"
-            ) from error
-    return product
-
 
 def conformance_parametrize() -> list[Any]:
     """Return pytest parameters ``(name, adapter)`` for every registered sensor.
@@ -288,6 +165,5 @@ def conformance_parametrize() -> list[Any]:
 
 __all__ = [
     "conformance_parametrize",
-    "run_retriever_conformance",
     "run_sensor_conformance",
 ]

@@ -23,15 +23,10 @@ change, and record why in the CHANGELOG.
 | `inputs/metadata_window.nc` | PARGE metadata crop re-indexed to a standalone 40 x 160 swath |
 | `inputs/radiance_window.nc` | Radiance crop, 29 SWIR bands |
 | `inputs/microhh_raw.nc` | MicroHH `ch4_path` snapshot crop (12 x 30 cells, no attrs) |
-| `inputs/lut.nc`, `inputs/target_10ppm.nc` | Real absorption table and 10 ppm target spectrum |
+| `inputs/lut.nc`, `inputs/target_10ppm.nc` | Real absorption table and 10 ppm unit absorption spectrum |
 | `inputs/column_on_grid.nc` | Synthetic Gaussian column on the radiance grid (kg m-2) |
-| `inputs/observed_product.nc` | Synthetic matched-filter column in ppm-m |
-| `inputs/fake_remapped.nc` | Synthetic remapped window with embedding attributes |
 | `expected/embedded_radiance_{vertical,slant}.nc` | `embed_column_in_radiance` outputs |
 | `expected/injected_ch4_mass.nc` | `injected_column` output |
-| `expected/product_embedded_{ppm,kg}.nc` | `embed_column_in_product` outputs |
-| `expected/placement_{rot,flip,partial}_cdo_{source,target}.nc` | `prepare_microhh_for_aviris_cdo` outputs |
-| `expected/merged.nc` | `merge_aviris_with_microhh` output without radiance |
 | `record.json` | Inputs, placement results, provenance attributes and SHA-256 digests |
 
 ## Placements
@@ -43,7 +38,9 @@ change, and record why in the CHANGELOG.
 | partial | lower left | 0 | None | 148, 36 | 7.54e-09 |
 
 The real-data files are small crops of campaign data stored for regression
-testing only; they are not a data product.
+testing only; they are not a data product. Fixtures of the removed matched
+filter, product embedding and CDO preparation were dropped with that code
+(their digests stay in `record.json`); they are kept at tag `v0.1.0`.
 
 ## Forward-model references
 

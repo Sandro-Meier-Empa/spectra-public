@@ -1,4 +1,4 @@
-"""Shared dataclasses used by the contracts, protocols and plugins."""
+"""Shared dataclasses used by the contracts, protocols and adapters."""
 
 from __future__ import annotations
 
@@ -17,8 +17,6 @@ Platform = Literal["airborne", "spaceborne"]
 RadianceLeg = Literal["solar", "view", "both"]
 AnchorCorner = Literal["lower left", "lower right", "upper left", "upper right"]
 Flip = Literal["none", "x", "y"]
-StatisticsScope = Literal["window", "full_scene", "cached_scene"]
-GeometrySpace = Literal["sensor", "map"]
 
 ANCHOR_CORNERS: tuple[AnchorCorner, ...] = (
     "lower left",
@@ -273,55 +271,6 @@ class Window:
 
 
 @dataclass(frozen=True, eq=False)
-class MapGrid:
-    """Regular map grid of an orthorectified product.
-
-    Attributes:
-        x: One-dimensional cell-centre x coordinates.
-        y: One-dimensional cell-centre y coordinates.
-        crs: Coordinate reference system of the grid.
-    """
-
-    x: np.ndarray
-    y: np.ndarray
-    crs: pyproj.CRS
-
-    def __post_init__(self) -> None:
-        """Validate monotonic, uniform axes."""
-        for name in ("x", "y"):
-            values = np.asarray(getattr(self, name), dtype=float)
-            if values.ndim != 1 or values.size < 2:
-                raise ContractError(f"MapGrid.{name} must be a one-dimensional axis.")
-            steps = np.diff(values)
-            if np.any(steps == 0) or not np.allclose(steps, steps[0], rtol=1e-6):
-                raise ContractError(f"MapGrid.{name} must be uniformly spaced.")
-            object.__setattr__(self, name, values)
-
-    @property
-    def dx(self) -> float:
-        """Return the signed x spacing."""
-        return float(self.x[1] - self.x[0])
-
-    @property
-    def dy(self) -> float:
-        """Return the signed y spacing."""
-        return float(self.y[1] - self.y[0])
-
-    @classmethod
-    def from_product(cls, product: xr.Dataset) -> MapGrid:
-        """Read the map grid of a product in map geometry space."""
-        from spectra.geometry.crs import crs_from_dataset
-
-        if product.attrs.get("geometry_space") != "map":
-            raise ContractError("MapGrid requires a product with geometry_space='map'.")
-        return cls(
-            x=np.asarray(product["x"].values, dtype=float),
-            y=np.asarray(product["y"].values, dtype=float),
-            crs=crs_from_dataset(product),
-        )
-
-
-@dataclass(frozen=True, eq=False)
 class SceneGeometry:
     """Projected pixel-centre geometry of a sensor scene.
 
@@ -456,67 +405,17 @@ class Placement:
         }
 
 
-@dataclass(frozen=True)
-class RetrievalSettings:
-    """Settings shared by all retrievers.
-
-    Attributes:
-        statistics_scope: Where background statistics come from: the embedded
-            window, the full scene, or statistics cached per scene.
-        band_windows_nm: Inclusive wavelength ranges used by the retrieval.
-        target_enhancement_ppm: Enhancement at which the target spectrum is
-            evaluated.
-        min_n_samples: Minimum number of background spectra per statistic.
-        exclude_injected_from_background: Mask the injected plume from the
-            background statistics (idealised background).
-        plume_mask_threshold_kg_m2: Injected column above which a pixel
-            counts as plume when ``exclude_injected_from_background`` is set.
-        options: Retriever-specific options, validated by the retriever.
-    """
-
-    statistics_scope: StatisticsScope = "cached_scene"
-    band_windows_nm: tuple[tuple[float, float], ...] = (
-        (1480.0, 1800.0),
-        (2080.0, 2500.0),
-    )
-    target_enhancement_ppm: float = 10.0
-    min_n_samples: int = 7000
-    exclude_injected_from_background: bool = False
-    plume_mask_threshold_kg_m2: float = 0.0
-    options: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        """Validate the settings."""
-        if self.statistics_scope not in ("window", "full_scene", "cached_scene"):
-            raise ContractError("statistics_scope is invalid.")
-        for lower, upper in self.band_windows_nm:
-            if not lower < upper:
-                raise ContractError(
-                    "band_windows_nm entries must satisfy lower < upper."
-                )
-        if self.target_enhancement_ppm <= 0:
-            raise ContractError("target_enhancement_ppm must be positive.")
-        if self.min_n_samples < 1:
-            raise ContractError("min_n_samples must be at least 1.")
-        if not self.plume_mask_threshold_kg_m2 >= 0:
-            raise ContractError("plume_mask_threshold_kg_m2 must be >= 0.")
-
-
 __all__ = [
     "ANCHOR_CORNERS",
     "FLIPS",
     "AnchorCorner",
     "Flip",
-    "GeometrySpace",
-    "MapGrid",
     "Placement",
     "Platform",
     "RadianceLeg",
-    "RetrievalSettings",
     "SceneGeometry",
     "SceneRecord",
     "SpectralResponse",
-    "StatisticsScope",
     "ViewingGeometry",
     "Window",
 ]

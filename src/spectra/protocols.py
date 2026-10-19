@@ -13,11 +13,9 @@ from typing import Any, Protocol, runtime_checkable
 import xarray as xr
 
 from spectra.types import (
-    MapGrid,
     Placement,
     Platform,
     RadianceLeg,
-    RetrievalSettings,
     SceneRecord,
     SpectralResponse,
     ViewingGeometry,
@@ -56,15 +54,6 @@ class SensorAdapter(Protocol):
 
     def background_group(self, record: SceneRecord) -> str:
         """Return the leakage group of a scene."""
-        ...
-
-
-@runtime_checkable
-class SupportsProduct(Protocol):
-    """Optional adapter capability: open a retrieved column product."""
-
-    def open_product(self, record: SceneRecord) -> xr.Dataset:
-        """Open the retrieved column product of a scene (``ColumnProduct`` contract)."""
         ...
 
 
@@ -147,39 +136,8 @@ class ForwardModel(Protocol):
 
 
 @runtime_checkable
-class Retriever(Protocol):
-    """Retrieve a column product from a sensor scene.
-
-    The scene is any ``SensorScene`` (an embedded window or full scene of any
-    sensor); the retriever selects the bands it needs with
-    ``settings.band_windows_nm``. Wrappers of external matched filters can
-    convert ppm-m outputs with
-    :func:`spectra.retrievers.convert.matched_filter_to_column_product`.
-    """
-
-    name: str
-
-    def retrieve(
-        self,
-        scene: xr.Dataset,
-        target: xr.Dataset,
-        *,
-        settings: RetrievalSettings,
-        background_stats: xr.Dataset | None = None,
-    ) -> xr.Dataset:
-        """Return a ``ColumnProduct`` in sensor geometry with uncertainties."""
-        ...
-
-    def background_statistics(
-        self, scene: xr.Dataset, *, settings: RetrievalSettings
-    ) -> xr.Dataset:
-        """Return cacheable background statistics of a plume-free scene."""
-        ...
-
-
-@runtime_checkable
 class Regridder(Protocol):
-    """Conservatively place a plume column on a sensor or map grid."""
+    """Conservatively place a plume column on a sensor grid."""
 
     name: str
 
@@ -194,48 +152,10 @@ class Regridder(Protocol):
         """Return the column in kg m-2 on the sensor grid, cropped to ``window``."""
         ...
 
-    def to_map(
-        self, column: xr.DataArray, grid: MapGrid, placement: Placement
-    ) -> xr.DataArray:
-        """Return the column in kg m-2 on a regular map grid."""
-        ...
-
-
-@runtime_checkable
-class Exporter(Protocol):
-    """Shape an embedded sample for a downstream consumer and write it.
-
-    ``needs_retrieval`` tells the generator whether the exporter consumes a
-    retrieved ``ColumnProduct`` (``True``) or the embedded ``SensorScene``
-    (``False``).
-    """
-
-    name: str
-    needs_retrieval: bool
-
-    def prepare(
-        self,
-        sample: xr.Dataset,
-        *,
-        gas: str = "ch4",
-        extra_attrs: Mapping[str, Any] | None = None,
-    ) -> xr.Dataset:
-        """Return the dataset to write, with ``extra_attrs`` merged in."""
-        ...
-
-    def write(
-        self, dataset: xr.Dataset, path: str | Path, *, overwrite: bool = False
-    ) -> Path:
-        """Write a prepared dataset and return its path."""
-        ...
-
 
 __all__ = [
-    "Exporter",
     "ForwardModel",
     "Regridder",
-    "Retriever",
     "SensorAdapter",
-    "SupportsProduct",
     "UnitAbsorptionProvider",
 ]

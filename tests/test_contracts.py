@@ -16,8 +16,6 @@ from spectra.contracts import (
     PluginError,
     convert_column_units,
     scale_emission,
-    to_prism_grid,
-    validate_column_product,
     validate_lut,
     validate_plume_column,
     validate_sensor_scene,
@@ -28,17 +26,14 @@ from spectra.contracts.plume_column import REQUIRED_ATTRS as PLUME_ATTRS
 from spectra.contracts.sensor_scene import GEOMETRY_VARIABLES
 from spectra.contracts.sensor_scene import REQUIRED_ATTRS as SCENE_ATTRS
 from spectra.geometry.crs import spatial_ref_coordinate
-from spectra.protocols import Retriever, SensorAdapter
+from spectra.protocols import SensorAdapter
 from spectra.testing import (
-    make_column_product,
     make_plume_column,
     make_sensor_scene,
     make_unit_absorption_spectrum,
 )
 from spectra.types import (
-    MapGrid,
     Placement,
-    RetrievalSettings,
     SpectralResponse,
     Window,
 )
@@ -332,135 +327,7 @@ def test_sensor_scene_require_lazy(scene: xr.Dataset) -> None:
         validate_sensor_scene(eager, require_lazy=True)
 
 
-# --- Contract B': ColumnProduct ---------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def product(scene: xr.Dataset) -> xr.Dataset:
-    return make_column_product(scene)
-
-
-@pytest.fixture(scope="module")
-def map_product() -> xr.Dataset:
-    x = np.arange(500000.0, 500050.0, 10.0)
-    y = np.arange(5200040.0, 5199990.0, -10.0)
-    shape = (y.size, x.size)
-    return xr.Dataset(
-        {
-            "ch4_mass": (
-                ("y", "x"),
-                np.zeros(shape, dtype=np.float32),
-                {"units": "kg m-2"},
-            ),
-            "ch4_mass_uncertainty": (
-                ("y", "x"),
-                np.full(shape, 1e-4, dtype=np.float32),
-                {"units": "kg/m2"},
-            ),
-            "retrieval_valid": (("y", "x"), np.ones(shape, dtype=bool)),
-            "pixel_area": (("y", "x"), np.full(shape, 100.0), {"units": "m2"}),
-        },
-        coords={
-            "x": ("x", x, {"units": "m"}),
-            "y": ("y", y, {"units": "m"}),
-            "spatial_ref": spatial_ref_coordinate(pyproj.CRS.from_epsg(32632)),
-        },
-        attrs={"geometry_space": "map", "sensor": "toy", "scene_id": "map-0001"},
-    )
-
-
-PRODUCT_MUTATIONS: dict[str, Mutation] = {
-    "no_geometry_space": lambda ds: without_attr(ds, "geometry_space"),
-    "geometry_space_invalid": lambda ds: with_attr(ds, "geometry_space", "swath"),
-    "missing_dim": lambda ds: ds.isel(along=0),
-    "missing_mass": lambda ds: ds.drop_vars("ch4_mass"),
-    "mass_wrong_dims": lambda ds: ds.assign(
-        ch4_mass=ds["ch4_mass"].transpose("along", "across")
-    ),
-    "mass_units": lambda ds: with_units(ds, "ch4_mass", "ppm-m"),
-    "mass_no_units": lambda ds: with_units(ds, "ch4_mass", None),
-    "mass_integer": lambda ds: as_dtype(ds, "ch4_mass", "int32"),
-    "missing_uncertainty": lambda ds: ds.drop_vars("ch4_mass_uncertainty"),
-    "uncertainty_units": lambda ds: with_units(ds, "ch4_mass_uncertainty", "ppm-m"),
-    "uncertainty_zero_where_valid": lambda ds: with_value(
-        ds, "ch4_mass_uncertainty", 0.0
-    ),
-    "uncertainty_nan_where_valid": lambda ds: with_value(
-        ds, "ch4_mass_uncertainty", np.nan
-    ),
-    "missing_retrieval_valid": lambda ds: ds.drop_vars("retrieval_valid"),
-    "retrieval_valid_not_bool": lambda ds: as_dtype(ds, "retrieval_valid", "int8"),
-    "retrieval_valid_wrong_dims": lambda ds: ds.assign(retrieval_valid=True),
-    "injected_wrong_dims": lambda ds: ds.assign(
-        injected_ch4_mass=ds["ch4_mass"].isel(along=0)
-    ),
-    "injected_units": lambda ds: ds.assign(
-        injected_ch4_mass=ds["ch4_mass"].assign_attrs(units="ppm-m")
-    ),
-    "pixel_area_wrong_dims": lambda ds: ds.assign(
-        pixel_area=ds["pixel_area"].isel(along=0)
-    ),
-    "sensitivity_wrong_dims": lambda ds: ds.assign(sensitivity=1.0),
-    "background_valid_wrong_dims": lambda ds: ds.assign(
-        background_valid=ds["retrieval_valid"].isel(across=0)
-    ),
-    "albedo_wrong_dims": lambda ds: ds.assign(albedo=ds["ch4_mass"].isel(across=0)),
-    "missing_sensor_attr": lambda ds: without_attr(ds, "sensor"),
-    "missing_scene_id_attr": lambda ds: without_attr(ds, "scene_id"),
-}
-
-MAP_PRODUCT_MUTATIONS: dict[str, Mutation] = {
-    "map_missing_dim_y": lambda ds: ds.isel(y=0),
-    "map_x_not_coordinate": lambda ds: ds.drop_vars("x"),
-    "map_y_2d": lambda ds: ds.drop_vars("y").assign_coords(
-        y=(("y", "x"), np.zeros((ds.sizes["y"], ds.sizes["x"])))
-    ),
-    "map_mass_wrong_dims": lambda ds: ds.assign(
-        ch4_mass=ds["ch4_mass"].transpose("x", "y")
-    ),
-}
-
-
-def test_product_fixtures_validate(
-    product: xr.Dataset, map_product: xr.Dataset
-) -> None:
-    info = validate_column_product(product)
-    assert info.spatial_dims == ("across", "along") and not info.has_injected
-    assert validate_column_product(
-        product.assign(injected_ch4_mass=product["ch4_mass"])
-    ).has_injected
-    # Invalid pixels may carry any uncertainty.
-    masked = product.copy(deep=True)
-    masked["retrieval_valid"].values[0, 0] = False
-    masked["ch4_mass_uncertainty"].values[0, 0] = np.nan
-    validate_column_product(masked)
-    map_info = validate_column_product(map_product)
-    assert map_info.spatial_dims == ("y", "x")
-    assert map_info.crs is not None and map_info.crs.to_epsg() == 32632
-    assert MapGrid.from_product(map_product).dx == 10.0
-    with pytest.raises(ContractError):
-        MapGrid.from_product(product)
-    with pytest.raises(ContractError, match="co2_mass"):
-        validate_column_product(product, gas="co2")
-
-
-@pytest.mark.parametrize(
-    "mutation", list(PRODUCT_MUTATIONS), ids=list(PRODUCT_MUTATIONS)
-)
-def test_column_product_rejects(product: xr.Dataset, mutation: str) -> None:
-    assert_contract_error(validate_column_product, PRODUCT_MUTATIONS[mutation](product))
-
-
-@pytest.mark.parametrize(
-    "mutation", list(MAP_PRODUCT_MUTATIONS), ids=list(MAP_PRODUCT_MUTATIONS)
-)
-def test_map_column_product_rejects(map_product: xr.Dataset, mutation: str) -> None:
-    assert_contract_error(
-        validate_column_product, MAP_PRODUCT_MUTATIONS[mutation](map_product)
-    )
-
-
-# --- unit conversion and prism grid -------------------------------------------
+# --- unit conversion -------------------------------------------
 
 
 def test_convert_column_units_ppm_m_to_kg_m2() -> None:
@@ -492,34 +359,6 @@ def test_convert_column_units_identity() -> None:
     )
     np.testing.assert_array_equal(alias.values, column.values)
     assert alias.attrs["units"] == "kg m-2"
-
-
-def test_to_prism_grid_sensor_space(product: xr.Dataset, scene: xr.Dataset) -> None:
-    with_band = product.assign(spectrum=("band", np.zeros(3)))
-    sample = to_prism_grid(with_band)
-    assert dict(sample.sizes) == {"y": scene.sizes["across"], "x": scene.sizes["along"]}
-    assert "spectrum" not in sample and "band" not in sample.dims
-    assert "x" not in sample.data_vars and "projected_x" in sample.coords
-    np.testing.assert_array_equal(sample["projected_x"].values, scene["x"].values)
-    np.testing.assert_array_equal(sample["projected_y"].values, scene["y"].values)
-    assert sample["projected_x"].dims == ("y", "x")
-    np.testing.assert_array_equal(sample["y"].values, np.arange(scene.sizes["across"]))
-    np.testing.assert_array_equal(sample["lat"].values, scene["lat"].values)
-    assert sample.attrs["prism_grid_source"] == "sensor"
-    for name in sample.data_vars:
-        assert sample[name].dims == ("y", "x")
-
-
-def test_to_prism_grid_map_space(map_product: xr.Dataset) -> None:
-    transposed = map_product.assign(
-        pixel_area=map_product["pixel_area"].transpose("x", "y")
-    )
-    sample = to_prism_grid(transposed)
-    np.testing.assert_array_equal(sample["x"].values, map_product["x"].values)
-    assert sample["pixel_area"].dims == ("y", "x")
-    assert sample.attrs["prism_grid_source"] == "map"
-    with pytest.raises(ContractError):
-        to_prism_grid(without_attr(map_product, "geometry_space"))
 
 
 # --- LUT and unit absorption spectra ---------------------------------------
@@ -673,22 +512,6 @@ def test_placement_validation() -> None:
             Placement(**kwargs)  # type: ignore[arg-type]
 
 
-def test_map_grid_validation() -> None:
-    crs = pyproj.CRS.from_epsg(32632)
-    grid = MapGrid(
-        x=np.array([0.0, 10.0, 20.0]), y=np.array([20.0, 10.0, 0.0]), crs=crs
-    )
-    assert grid.dx == 10.0 and grid.dy == -10.0
-    for x in (
-        np.zeros((2, 2)),
-        np.array([0.0]),
-        np.array([0.0, 10.0, 25.0]),
-        np.array([0.0, 0.0, 0.0]),
-    ):
-        with pytest.raises(ContractError):
-            MapGrid(x=x, y=np.array([0.0, 10.0]), crs=crs)
-
-
 def test_spectral_response_validation() -> None:
     response = SpectralResponse(
         wavelength=np.array([2100.0, 2150.0, 2200.0]), fwhm=np.array([8.0, 8.0, 8.0])
@@ -711,22 +534,6 @@ def test_spectral_response_validation() -> None:
         )
 
 
-def test_retrieval_settings_validation() -> None:
-    assert RetrievalSettings().statistics_scope == "cached_scene"
-    with pytest.raises(ContractError):
-        RetrievalSettings(statistics_scope="global")  # type: ignore[arg-type]
-    with pytest.raises(ContractError):
-        RetrievalSettings(band_windows_nm=((2500.0, 2080.0),))
-    with pytest.raises(ContractError):
-        RetrievalSettings(target_enhancement_ppm=0.0)
-    with pytest.raises(ContractError):
-        RetrievalSettings(min_n_samples=0)
-    assert RetrievalSettings().plume_mask_threshold_kg_m2 == 0.0
-    for threshold in (-1e-6, float("nan")):
-        with pytest.raises(ContractError, match="plume_mask_threshold"):
-            RetrievalSettings(plume_mask_threshold_kg_m2=threshold)
-
-
 # --- registry ----------------------------------------------------------------
 
 
@@ -741,7 +548,5 @@ def test_registry_unknown_group_and_name() -> None:
 
 def test_registry_loads_toy_plugins() -> None:
     assert {"toy", "aviris4"} <= set(registry.list_plugins("sensors"))
-    assert {"toy", "aviris4_mf"} <= set(registry.list_plugins("retrievers"))
     assert isinstance(registry.get_sensor("toy"), SensorAdapter)
-    assert isinstance(registry.get_retriever("toy"), Retriever)
     assert registry.get_sensor("toy").name == "toy"

@@ -35,7 +35,6 @@ dependencies = [
   "netCDF4",
   "zarr",
   "pandas",
-  "pyarrow",
   "pyproj",
   "shapely>=2",
   "scipy",
@@ -44,15 +43,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Sensor adapters and retrievals wrapping the sensor-specific packages.
+# Legacy libRadtran/ARTS provider and AVIRIS-4 adapter wrapping aviris4-ch4.
 aviris4 = ["aviris4-ch4"]
-emit = ["ddeq", "rasterio>=1.4", "earthaccess"]
 # Validating the plume-column exporter of the MicroHH processing chain.
 microhh = ["microhh-processing-chain"]
-# Validating exported products against the prism sample contract.
-prism = ["prism"]
-# Slurm array generation on CSCS Alps.
-slurm = ["cscs"]
 dev = [
   "bump-my-version>=1,<2",
   "pre-commit",
@@ -71,10 +65,6 @@ spectra = "spectra.cli:main"
 aviris4 = "spectra.sensors.aviris4:Aviris4Adapter"
 toy = "spectra.sensors.toy:ToySensorAdapter"
 
-[project.entry-points."spectra.retrievers"]
-aviris4_mf = "spectra.retrievers.aviris4_mf:Aviris4MatchedFilter"
-toy = "spectra.retrievers.toy:ToyRetriever"
-
 [project.entry-points."spectra.unit_absorption"]
 libradtran_arts = "spectra.spectral.providers.libradtran_arts:LibRadtranArtsProvider"
 toy = "spectra.spectral.providers.toy:ToyUnitAbsorption"
@@ -82,12 +72,6 @@ toy = "spectra.spectral.providers.toy:ToyUnitAbsorption"
 [project.entry-points."spectra.regridders"]
 polygon = "spectra.regrid.polygon:PolygonRegridder"
 bucket = "spectra.regrid.bucket:BucketRegridder"
-cdo = "spectra.regrid.cdo:CdoRegridder"
-
-[project.entry-points."spectra.exporters"]
-prism = "spectra.export.exporters:PrismExporter"
-column_product = "spectra.export.exporters:ColumnProductExporter"
-radiance = "spectra.export.exporters:RadianceExporter"
 
 [project.urls]
 Homepage = "https://gitlab.empa.ch/abt503/users/mesa/spectra"

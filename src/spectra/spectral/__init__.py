@@ -1,4 +1,4 @@
-"""Absorption tables, Lambert-Beer embedding and unit-absorption providers."""
+"""Absorption tables, Lambert-Beer embedding and forward models."""
 
 from spectra.spectral.embedding import (
     COLUMN_UNITS,
@@ -6,7 +6,6 @@ from spectra.spectral.embedding import (
     PPM_METRE_UNITS,
     ColumnConvention,
     EmbeddingMethod,
-    embed_column_in_product,
     embed_column_in_radiance,
     embedding_provenance,
     injected_column,
@@ -31,7 +30,6 @@ __all__ = [
     "UnitAbsorptionModel",
     "UnitAbsorptionProviderBase",
     "build_slant_absorption_lut",
-    "embed_column_in_product",
     "embed_column_in_radiance",
     "embedding_provenance",
     "injected_column",

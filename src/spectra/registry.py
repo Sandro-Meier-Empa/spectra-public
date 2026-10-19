@@ -1,4 +1,4 @@
-"""Entry-point registry of the SPECTRA plugin groups (adapters to exporters)."""
+"""Entry-point registry of the SPECTRA plugin groups."""
 
 from __future__ import annotations
 
@@ -6,41 +6,24 @@ from importlib.metadata import EntryPoint, entry_points
 from typing import Literal, cast
 
 from spectra.contracts.errors import MissingExtraError, PluginError
-from spectra.protocols import (
-    Exporter,
-    Regridder,
-    Retriever,
-    SensorAdapter,
-    UnitAbsorptionProvider,
-)
+from spectra.protocols import Regridder, SensorAdapter, UnitAbsorptionProvider
 
-PluginGroup = Literal[
-    "sensors", "retrievers", "unit_absorption", "regridders", "exporters"
-]
+PluginGroup = Literal["sensors", "unit_absorption", "regridders"]
 
 GROUPS: dict[PluginGroup, str] = {
     "sensors": "spectra.sensors",
-    "retrievers": "spectra.retrievers",
     "unit_absorption": "spectra.unit_absorption",
     "regridders": "spectra.regridders",
-    "exporters": "spectra.exporters",
 }
 _PROTOCOLS: dict[PluginGroup, type] = {
     "sensors": SensorAdapter,
-    "retrievers": Retriever,
     "unit_absorption": UnitAbsorptionProvider,
     "regridders": Regridder,
-    "exporters": Exporter,
 }
 # Import names of optional dependencies mapped to the pip extra providing them.
 _EXTRAS: dict[str, str] = {
     "aviris4_ch4": "aviris4",
-    "ddeq": "emit",
-    "rasterio": "emit",
-    "earthaccess": "emit",
     "microhh_processing_chain": "microhh",
-    "prism": "prism",
-    "cscs": "slurm",
 }
 
 
@@ -104,11 +87,6 @@ def get_sensor(name: str, **options: object) -> SensorAdapter:
     return cast(SensorAdapter, load_plugin("sensors", name, **options))
 
 
-def get_retriever(name: str, **options: object) -> Retriever:
-    """Return the retriever registered under ``name``."""
-    return cast(Retriever, load_plugin("retrievers", name, **options))
-
-
 def get_unit_absorption_provider(
     name: str, **options: object
 ) -> UnitAbsorptionProvider:
@@ -121,17 +99,10 @@ def get_regridder(name: str, **options: object) -> Regridder:
     return cast(Regridder, load_plugin("regridders", name, **options))
 
 
-def get_exporter(name: str, **options: object) -> Exporter:
-    """Return the exporter registered under ``name``."""
-    return cast(Exporter, load_plugin("exporters", name, **options))
-
-
 __all__ = [
     "GROUPS",
     "PluginGroup",
-    "get_exporter",
     "get_regridder",
-    "get_retriever",
     "get_sensor",
     "get_unit_absorption_provider",
     "list_plugins",

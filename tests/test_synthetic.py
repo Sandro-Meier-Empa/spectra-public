@@ -11,14 +11,11 @@ from spectra.contracts import (
     plume_support_bounds,
     scale_emission,
     select_time,
-    to_prism_grid,
-    validate_column_product,
     validate_plume_column,
     validate_sensor_scene,
     validate_unit_absorption_spectrum,
 )
 from spectra.testing import (
-    make_column_product,
     make_plume_column,
     make_sensor_scene,
     make_unit_absorption_spectrum,
@@ -217,59 +214,6 @@ def test_sensor_scene_options() -> None:
         make_sensor_scene(wavelengths=[2.0, 1.0])
     with pytest.raises(ContractError):
         make_sensor_scene(crs="EPSG:4326")
-
-
-# --- column products -------------------------------------------------------
-
-
-def test_column_product_validates(scene: xr.Dataset) -> None:
-    product = make_column_product(scene)
-    info = validate_column_product(product)
-    assert info.geometry_space == "sensor"
-    assert info.sensor == "toy" and info.scene_id == "toy-0001"
-    assert info.crs is not None and info.crs.to_epsg() == 32632
-    assert float(product["ch4_mass"].sum()) == 0.0
-    assert np.allclose(product["ch4_mass_uncertainty"].values, 1e-4)
-    assert bool(product["retrieval_valid"].all())
-    assert product["pixel_area"].dims == ("across", "along")
-    assert product.attrs["retriever"] == "toy"
-    assert product.attrs["background_group"] == scene.attrs["background_group"]
-    for name in ("lat", "lon", "x", "y", "spatial_ref", "time"):
-        assert name in product.coords
-
-
-def test_column_product_with_column(scene: xr.Dataset) -> None:
-    column = np.full((scene.sizes["across"], scene.sizes["along"]), 2.5e-3)
-    product = make_column_product(scene, column=column, uncertainty_kg_m2=1e-5)
-    validate_column_product(product)
-    assert np.allclose(product["ch4_mass"].values, 2.5e-3)
-    labelled = xr.DataArray(
-        np.full(column.shape, 1000.0),
-        dims=("across", "along"),
-        attrs={"units": "ppm-m"},
-    )
-    converted = make_column_product(scene, column=labelled)
-    assert np.allclose(converted["ch4_mass"].values, 6.78e-4, rtol=0.01)
-    with pytest.raises(ValueError, match="shape"):
-        make_column_product(scene, column=np.zeros((2, 2)))
-    with pytest.raises(ValueError, match="uncertainty"):
-        make_column_product(scene, uncertainty_kg_m2=0.0)
-    other = make_column_product(scene, gas="co2")
-    validate_column_product(other, gas="co2")
-    with pytest.raises(ContractError):
-        validate_column_product(other)
-
-
-def test_column_product_to_prism_grid(scene: xr.Dataset) -> None:
-    product = make_column_product(scene)
-    sample = to_prism_grid(product)
-    assert dict(sample.sizes) == {"y": scene.sizes["across"], "x": scene.sizes["along"]}
-    for name in sample.data_vars:
-        assert sample[name].dims == ("y", "x")
-    assert "projected_x" in sample.coords and "projected_y" in sample.coords
-    assert sample.attrs["prism_grid_source"] == "sensor"
-    prism = pytest.importorskip("prism")
-    prism.data.contracts.validate_sample(sample, require_target=False)
 
 
 # --- unit absorption -------------------------------------------------------

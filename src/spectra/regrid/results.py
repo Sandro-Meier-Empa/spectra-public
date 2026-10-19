@@ -8,10 +8,9 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
-from spectra.geometry.crs import spatial_ref_coordinate
 from spectra.geometry.placement import PlacedColumn
 from spectra.regrid.base import RegridResult, relative_mass_error
-from spectra.types import MapGrid, Window
+from spectra.types import Window
 
 SCENE_COORDS = ("x", "y", "lon", "lat")
 
@@ -61,47 +60,6 @@ def scene_data_array(
     )
 
 
-def map_window_attrs(y_slice: slice, x_slice: slice) -> dict[str, int]:
-    """Return map window bounds as integer attributes."""
-    return {
-        "window_y_start": int(y_slice.start),
-        "window_y_stop": int(y_slice.stop),
-        "window_x_start": int(x_slice.start),
-        "window_x_stop": int(x_slice.stop),
-    }
-
-
-def map_data_array(
-    values: np.ndarray,
-    *,
-    grid: MapGrid,
-    y_slice: slice,
-    x_slice: slice,
-    placed: PlacedColumn,
-    name: Hashable | None = None,
-) -> xr.DataArray:
-    """Wrap regridded ``(y, x)`` values of a map window as a data array."""
-    coords: dict[str, Any] = {
-        "y": ("y", grid.y[y_slice], {"units": "m", "axis": "Y"}),
-        "x": ("x", grid.x[x_slice], {"units": "m", "axis": "X"}),
-        "spatial_ref": spatial_ref_coordinate(grid.crs),
-    }
-    attrs = {
-        "units": placed.units,
-        "long_name": "plume column on the map grid",
-        "geometry_space": "map",
-        **map_window_attrs(y_slice, x_slice),
-        **placed.placement.attrs(),
-    }
-    return xr.DataArray(
-        np.asarray(values, dtype=np.float64),
-        dims=("y", "x"),
-        coords=coords,
-        attrs=attrs,
-        name=name,
-    )
-
-
 def finalize_result(
     data: xr.DataArray,
     *,
@@ -132,7 +90,5 @@ def finalize_result(
 __all__ = [
     "SCENE_COORDS",
     "finalize_result",
-    "map_data_array",
-    "map_window_attrs",
     "scene_data_array",
 ]

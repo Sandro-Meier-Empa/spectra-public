@@ -1,12 +1,5 @@
-"""Data contracts between the LES chain, sensor adapters, SPECTRA and prism."""
+"""Data contracts between the LES chain, sensor adapters and SPECTRA."""
 
-from spectra.contracts.column_product import (
-    CANONICAL_COLUMN_UNITS,
-    ProductInfo,
-    convert_column_units,
-    to_prism_grid,
-    validate_column_product,
-)
 from spectra.contracts.errors import (
     ContractError,
     MissingExtraError,
@@ -26,6 +19,7 @@ from spectra.contracts.sensor_scene import (
     SceneInfo,
     validate_sensor_scene,
 )
+from spectra.contracts.units import CANONICAL_COLUMN_UNITS, convert_column_units
 
 __all__ = [
     "CANONICAL_COLUMN_UNITS",
@@ -34,15 +28,12 @@ __all__ = [
     "MissingExtraError",
     "PluginError",
     "PlumeColumnInfo",
-    "ProductInfo",
     "RegridderUnavailableError",
     "SceneInfo",
     "convert_column_units",
     "plume_support_bounds",
     "scale_emission",
     "select_time",
-    "to_prism_grid",
-    "validate_column_product",
     "validate_lut",
     "validate_plume_column",
     "validate_sensor_scene",

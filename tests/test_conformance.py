@@ -1,4 +1,4 @@
-"""Adapter and retriever conformance tests over the registered plugins."""
+"""Adapter conformance tests over the registered plugins."""
 
 from __future__ import annotations
 
@@ -8,24 +8,12 @@ from typing import cast
 
 import numpy as np
 import pytest
-import xarray as xr
 
-from spectra.contracts import ContractError, validate_column_product
-from spectra.pipeline import retrieve_embedded
-from spectra.protocols import Retriever, SensorAdapter, SupportsProduct
-from spectra.registry import get_retriever, get_sensor
-from spectra.retrievers.toy import ToyRetriever
+from spectra.protocols import SensorAdapter
+from spectra.registry import get_sensor
 from spectra.sensors.toy import ToySensorAdapter
-from spectra.testing import (
-    conformance_parametrize,
-    make_sensor_scene,
-    make_unit_absorption_spectrum,
-    run_retriever_conformance,
-    run_sensor_conformance,
-)
-from spectra.types import RetrievalSettings, SceneRecord
-
-PPM_M_TO_KG_M2 = 6.78e-7
+from spectra.testing import conformance_parametrize, run_sensor_conformance
+from spectra.types import SceneRecord
 
 
 @pytest.mark.parametrize(("name", "adapter"), conformance_parametrize())
@@ -50,13 +38,12 @@ def test_toy_adapter_from_registry() -> None:
     plugin = get_sensor("toy", n_across=16, n_along=24, noise_sigma=0.01)
     assert isinstance(plugin, ToySensorAdapter)
     assert isinstance(plugin, SensorAdapter)
-    assert isinstance(plugin, SupportsProduct)
     # pyright keeps the protocol signature after narrowing; the toy takes None.
     adapter = cast(ToySensorAdapter, plugin)
     records = adapter.list_scenes(None, n=2)
     assert [record.scene_id for record in records] == ["toy-0001", "toy-0002"]
     assert records[1].acquisition_time.day == records[0].acquisition_time.day + 1
-    assert records[0].has_product and records[0].uris == {}
+    assert records[0].uris == {}
     for record in records:
         run_sensor_conformance(adapter, record)
     scene = adapter.open_scene(records[0], chunks={"across": 8})
@@ -103,243 +90,3 @@ def test_sensor_conformance_reports_violations() -> None:
         run_sensor_conformance(adapter, wrong_sensor)
     with pytest.raises(AssertionError, match="SensorAdapter"):
         run_sensor_conformance(object(), record)
-
-
-@pytest.fixture(scope="module")
-def clean_scene() -> xr.Dataset:
-    return make_sensor_scene(noise_sigma=0.005, seed=3)
-
-
-@pytest.fixture(scope="module")
-def target(clean_scene: xr.Dataset) -> xr.Dataset:
-    return make_unit_absorption_spectrum(clean_scene["wavelength"].values)
-
-
-def inject(
-    scene: xr.Dataset, column_ppm_m: np.ndarray, target: xr.Dataset
-) -> xr.Dataset:
-    """Return the scene with a Lambert-Beer enhancement multiplied into the radiance."""
-    kernel = np.asarray(target["unit_abs_spect"].values, dtype=float)
-    transmission = np.exp(column_ppm_m[:, :, None] * kernel[None, None, :])
-    injected = scene.copy()
-    radiance = (scene["radiance"] * transmission.astype(np.float32)).astype(np.float32)
-    injected["radiance"] = radiance.assign_attrs(scene["radiance"].attrs)
-    return injected
-
-
-def test_toy_retriever_conformance(clean_scene: xr.Dataset, target: xr.Dataset) -> None:
-    retriever = get_retriever("toy")
-    assert isinstance(retriever, ToyRetriever)
-    assert isinstance(retriever, Retriever)
-    settings = RetrievalSettings()
-    product = run_retriever_conformance(retriever, clean_scene, target, settings)
-    assert product.attrs["retrieval_n_bands"] == clean_scene.sizes["band"]
-    # A plume-free scene retrieves zero enhancement within the noise.
-    assert abs(float(product["ch4_mass"].mean())) < 3e-6
-    assert float(product["ch4_mass"].std()) < 1e-4
-    stats = retriever.background_statistics(clean_scene, settings=settings)
-    assert stats["background_mean"].dims == ("across", "band")
-    assert bool(np.all(stats["n_samples"].values == clean_scene.sizes["along"]))
-
-
-def test_toy_retriever_recovers_injected_enhancement(
-    clean_scene: xr.Dataset, target: xr.Dataset
-) -> None:
-    retriever = ToyRetriever()
-    settings = RetrievalSettings()
-    across, along = np.meshgrid(
-        np.arange(clean_scene.sizes["across"]),
-        np.arange(clean_scene.sizes["along"]),
-        indexing="ij",
-    )
-    blob = 2000.0 * np.exp(
-        -0.5 * (((across - 30) / 5.0) ** 2 + ((along - 70) / 9.0) ** 2)
-    )
-    injected_kg_m2 = blob * PPM_M_TO_KG_M2
-    scene = inject(clean_scene, blob, target)
-    # Idealised background: statistics from the plume-free scene.
-    stats = retriever.background_statistics(clean_scene, settings=settings)
-    product = retriever.retrieve(
-        scene, target, settings=settings, background_stats=stats
-    )
-    validate_column_product(product)
-    retrieved = product["ch4_mass"].values.astype(float)
-    correlation = np.corrcoef(retrieved.ravel(), injected_kg_m2.ravel())[0, 1]
-    assert correlation > 0.95
-    assert retrieved.max() == pytest.approx(injected_kg_m2.max(), rel=0.1)
-    assert bool(np.all(product["ch4_mass_uncertainty"].values > 0))
-    assert float(product["ch4_mass_uncertainty"].mean()) < 1e-4
-    # Statistics from the contaminated scene itself still locate the plume.
-    own = retriever.retrieve(scene, target, settings=settings)
-    assert (
-        np.corrcoef(own["ch4_mass"].values.ravel(), injected_kg_m2.ravel())[0, 1] > 0.8
-    )
-    # Interpolating a finer target onto the scene bands gives the same answer.
-    fine = make_unit_absorption_spectrum(np.arange(2090.0, 2500.0, 0.7))
-    resampled = retriever.retrieve(
-        scene, fine, settings=settings, background_stats=stats
-    )
-    assert resampled["ch4_mass"].values.max() == pytest.approx(
-        retrieved.max(), rel=0.05
-    )
-    # A grid sharing no node with the scene bands needs interpolation.
-    shifted = make_unit_absorption_spectrum(np.arange(2100.37, 2500.0, 7.5))
-    with pytest.raises(ContractError, match="interpolation is off"):
-        retriever.retrieve(
-            scene,
-            shifted,
-            settings=RetrievalSettings(options={"interpolate_target": False}),
-        )
-    with pytest.raises(ContractError, match="bands"):
-        retriever.retrieve(
-            scene,
-            make_unit_absorption_spectrum(np.arange(1500.0, 1700.0, 5.0)),
-            settings=settings,
-        )
-
-
-def test_toy_retriever_marks_invalid_pixels(
-    clean_scene: xr.Dataset, target: xr.Dataset
-) -> None:
-    scene = clean_scene.copy()
-    valid = np.ones((scene.sizes["across"], scene.sizes["along"]), dtype=bool)
-    valid[:, :10] = False
-    valid[3, :] = False
-    scene["valid"] = (("across", "along"), valid)
-    product = run_retriever_conformance(
-        ToyRetriever(), scene, target, RetrievalSettings()
-    )
-    assert not bool(product["retrieval_valid"].values[:, :10].any())
-    assert not bool(product["retrieval_valid"].values[3].any())
-    assert bool(product["retrieval_valid"].values[4, 10:].all())
-    assert np.all(np.isnan(product["ch4_mass"].values[3]))
-    assert bool(np.all(product["ch4_mass_uncertainty"].values > 0))
-    with pytest.raises(ContractError, match="background_mean"):
-        ToyRetriever().retrieve(
-            scene, target, settings=RetrievalSettings(), background_stats=xr.Dataset()
-        )
-    with pytest.raises(ValueError):
-        ToyRetriever(uncertainty_floor_kg_m2=0.0)
-
-
-class _RecordingToyRetriever(ToyRetriever):
-    """Toy retriever that keeps the last scene it was handed."""
-
-    scene: xr.Dataset | None = None
-
-    def retrieve(
-        self,
-        scene: xr.Dataset,
-        target: xr.Dataset,
-        *,
-        settings: RetrievalSettings,
-        background_stats: xr.Dataset | None = None,
-    ) -> xr.Dataset:
-        self.scene = scene
-        return super().retrieve(
-            scene, target, settings=settings, background_stats=background_stats
-        )
-
-
-def _embedded_blob(
-    scene: xr.Dataset, target: xr.Dataset
-) -> tuple[xr.Dataset, np.ndarray]:
-    """Return the scene with an embedded Gaussian plume and its truth in kg m-2."""
-    across, along = np.meshgrid(
-        np.arange(scene.sizes["across"]), np.arange(scene.sizes["along"]), indexing="ij"
-    )
-    blob = 2000.0 * np.exp(
-        -0.5 * (((across - 30) / 5.0) ** 2 + ((along - 70) / 9.0) ** 2)
-    )
-    truth = blob * PPM_M_TO_KG_M2
-    embedded = inject(scene, blob, target)
-    embedded["injected_ch4_mass"] = xr.DataArray(
-        truth, dims=("across", "along"), attrs={"units": "kg m-2"}
-    )
-    return embedded, truth
-
-
-def test_retrieve_embedded_masks_injected_plume(
-    clean_scene: xr.Dataset, target: xr.Dataset
-) -> None:
-    embedded, truth = _embedded_blob(clean_scene, target)
-    threshold = 1e-4
-    retriever = _RecordingToyRetriever()
-    settings = RetrievalSettings(
-        statistics_scope="window",
-        exclude_injected_from_background=True,
-        plume_mask_threshold_kg_m2=threshold,
-    )
-    masked = retrieve_embedded(embedded, target, retriever=retriever, settings=settings)
-    assert retriever.scene is not None
-    mask = retriever.scene["plume_mask"]
-    assert mask.dtype == bool
-    np.testing.assert_array_equal(
-        mask.transpose("across", "along").values, truth > threshold
-    )
-    assert 0 < int(mask.sum()) < mask.size
-    assert "plume_mask" not in embedded
-    assert masked.attrs["retrieval_exclude_injected_from_background"] == 1
-    assert masked.attrs["retrieval_plume_mask_threshold_kg_m2"] == threshold
-
-    contaminated = retrieve_embedded(
-        embedded,
-        target,
-        retriever=retriever,
-        settings=RetrievalSettings(statistics_scope="window"),
-    )
-    assert "plume_mask" not in retriever.scene
-    # Masking removes the plume from the column means, so the peak is recovered.
-    masked_peak = float(masked["ch4_mass"].max())
-    contaminated_peak = float(contaminated["ch4_mass"].max())
-    assert masked_peak == pytest.approx(truth.max(), rel=0.1)
-    assert abs(masked_peak - truth.max()) < abs(contaminated_peak - truth.max())
-
-    with pytest.raises(ContractError, match="injected_ch4_mass"):
-        retrieve_embedded(
-            embedded.drop_vars("injected_ch4_mass"),
-            target,
-            retriever=retriever,
-            settings=settings,
-        )
-
-
-def test_toy_background_statistics_exclude_plume_mask(clean_scene: xr.Dataset) -> None:
-    scene = clean_scene.copy()
-    mask = np.zeros((scene.sizes["across"], scene.sizes["along"]), dtype=bool)
-    mask[5:10, 20:60] = True
-    scene["plume_mask"] = (("across", "along"), mask)
-    retriever = ToyRetriever()
-    stats = retriever.background_statistics(
-        scene, settings=RetrievalSettings(exclude_injected_from_background=True)
-    )
-    radiance = scene["radiance"].transpose("across", "along", "band").values
-    expected = radiance[7][~mask[7]].astype(float).mean(axis=0)
-    np.testing.assert_allclose(stats["background_mean"].values[7], expected)
-    assert int(stats["n_samples"].values[7]) == scene.sizes["along"] - 40
-    ignored = retriever.background_statistics(scene, settings=RetrievalSettings())
-    assert int(ignored["n_samples"].values[7]) == scene.sizes["along"]
-
-
-def test_aviris4_mf_forwards_plume_mask(clean_scene: xr.Dataset) -> None:
-    from spectra.retrievers.aviris4_mf import Aviris4MatchedFilter
-
-    retriever = Aviris4MatchedFilter(mask_shadows=False, parallel=False)
-    windows = ((2080.0, 2500.0),)
-    settings = RetrievalSettings(
-        statistics_scope="window",
-        band_windows_nm=windows,
-        exclude_injected_from_background=True,
-    )
-    scene = clean_scene.copy()
-    mask = np.zeros((scene.sizes["along"], scene.sizes["across"]), dtype=bool)
-    mask[3, 4] = True
-    # Stored transposed: the wrapper must hand over the radiance's spatial order.
-    scene["plume_mask"] = (("along", "across"), mask)
-    data = retriever._filter_input(scene, settings)
-    assert data["plume_mask"].dims == ("across", "along")
-    np.testing.assert_array_equal(data["plume_mask"].values, mask.T)
-    with pytest.raises(ContractError, match="plume_mask"):
-        retriever._filter_input(clean_scene, settings)
-    off = RetrievalSettings(statistics_scope="window", band_windows_nm=windows)
-    assert "plume_mask" not in retriever._filter_input(scene, off)

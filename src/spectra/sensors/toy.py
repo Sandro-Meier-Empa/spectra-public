@@ -14,7 +14,6 @@ from spectra.contracts.sensor_scene import PLATFORMS, SPATIAL_DIMS
 from spectra.geometry.crs import projected_metre_crs, to_lonlat
 from spectra.testing.synthetic import (
     DEFAULT_SCENE_CRS,
-    make_column_product,
     make_sensor_scene,
     scene_pixel_centres,
     scene_seed,
@@ -48,7 +47,7 @@ _SCENE_OPTIONS = frozenset(inspect.signature(make_sensor_scene).parameters)
 class ToySensorAdapter:
     """Sensor adapter serving synthetic scenes from :mod:`spectra.testing`.
 
-    Implements ``SensorAdapter`` and ``SupportsProduct``. Scenes are generated
+    Implements ``SensorAdapter``. Scenes are generated
     on demand from ``make_sensor_scene`` with a seed derived from the scene
     id, so every record opens to the same data in every process.
 
@@ -153,7 +152,6 @@ class ToySensorAdapter:
                     center_lonlat=centre,
                     bbox_lonlat=bounds,
                     has_radiance=True,
-                    has_product=True,
                     extra={"scenes": str(scenes), "index": index},
                 )
             )
@@ -198,10 +196,6 @@ class ToySensorAdapter:
                 "shadow": flagged.assign_attrs(long_name="shadow flagged"),
             }
         )
-
-    def open_product(self, record: SceneRecord) -> xr.Dataset:
-        """Return a plume-free ``ColumnProduct`` of the record's scene."""
-        return make_column_product(self.open_scene(record))
 
 
 __all__ = ["ToySensorAdapter"]

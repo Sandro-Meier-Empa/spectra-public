@@ -1,8 +1,8 @@
-"""Synthetic plume columns, sensor scenes and column products for tests.
+"""Synthetic plume columns and sensor scenes for tests.
 
 The generators build small, deterministic datasets that satisfy the SPECTRA
-contracts without external data. They back the toy sensor adapter, the toy
-retriever and the adapter conformance suite.
+contracts without external data. They back the toy sensor adapter and the
+adapter conformance suite.
 """
 
 from __future__ import annotations
@@ -18,12 +18,6 @@ import xarray as xr
 from scipy import ndimage
 
 import spectra
-from spectra.contracts.column_product import (
-    CANONICAL_COLUMN_UNITS,
-    COLUMN_PRODUCT_CONTRACT,
-    COLUMN_PRODUCT_VERSION,
-    convert_column_units,
-)
 from spectra.contracts.plume_column import (
     COLUMN_UNITS,
     EMISSION_RATE_UNITS,
@@ -519,98 +513,6 @@ def scene_spatial_coords(scene: xr.Dataset) -> dict[str, xr.DataArray]:
     }
 
 
-def make_column_product(
-    scene: xr.Dataset,
-    *,
-    column: xr.DataArray | npt.ArrayLike | None = None,
-    uncertainty_kg_m2: float = 1e-4,
-    gas: str = "ch4",
-) -> xr.Dataset:
-    """Return a sensor-space ``ColumnProduct`` matching a scene.
-
-    Args:
-        scene: ``SensorScene`` dataset providing the grid and attributes.
-        column: Column enhancement on ``(across, along)``; zeros by default.
-            A ``DataArray`` with a ``units`` attribute is converted to kg m-2.
-        uncertainty_kg_m2: Constant column uncertainty in kg m-2.
-        gas: Lower-case gas name used in the variable names.
-
-    Returns:
-        Dataset passing ``validate_column_product(gas=gas)``.
-
-    Raises:
-        ValueError: If the column shape or the uncertainty is invalid.
-    """
-    shape = (int(scene.sizes["across"]), int(scene.sizes["along"]))
-    if uncertainty_kg_m2 <= 0 or not np.isfinite(uncertainty_kg_m2):
-        raise ValueError("uncertainty_kg_m2 must be a positive finite number.")
-    if column is None:
-        values = np.zeros(shape, dtype=np.float32)
-    else:
-        if isinstance(column, xr.DataArray):
-            if "units" in column.attrs:
-                column = convert_column_units(
-                    column, CANONICAL_COLUMN_UNITS, gas=gas.upper()
-                )
-            if set(column.dims) == set(SPATIAL_DIMS):
-                column = column.transpose(*SPATIAL_DIMS)
-            values = np.asarray(column.values, dtype=np.float32)
-        else:
-            values = np.asarray(column, dtype=np.float32)
-        if values.shape != shape:
-            raise ValueError(f"column must have shape {shape}; got {values.shape}.")
-    valid = np.asarray(scene["valid"].values, dtype=bool) & np.isfinite(values)
-    label = gas.upper()
-    product = xr.Dataset(
-        {
-            f"{gas}_mass": (
-                SPATIAL_DIMS,
-                values,
-                {
-                    "units": CANONICAL_COLUMN_UNITS,
-                    "long_name": f"{label} column enhancement",
-                    "native_units": CANONICAL_COLUMN_UNITS,
-                    "native_variable": f"{gas}_mass",
-                    "column_conversion": "none",
-                },
-            ),
-            f"{gas}_mass_uncertainty": (
-                SPATIAL_DIMS,
-                np.full(shape, float(uncertainty_kg_m2), dtype=np.float32),
-                {
-                    "units": CANONICAL_COLUMN_UNITS,
-                    "long_name": f"{label} column uncertainty (1 sigma)",
-                },
-            ),
-            "retrieval_valid": (
-                SPATIAL_DIMS,
-                valid,
-                {"long_name": "retrieval succeeded"},
-            ),
-            "pixel_area": scene["pixel_area"].transpose(*SPATIAL_DIMS),
-        },
-        coords=scene_spatial_coords(scene),
-        attrs={
-            "contract": COLUMN_PRODUCT_CONTRACT,
-            "contract_version": COLUMN_PRODUCT_VERSION,
-            "sensor": str(scene.attrs["sensor"]),
-            "platform": str(scene.attrs.get("platform", "airborne")),
-            "scene_id": str(scene.attrs["scene_id"]),
-            "acquisition_time": str(scene.attrs.get("acquisition_time", "")),
-            "background_group": str(scene.attrs["background_group"]),
-            "geometry_space": "sensor",
-            "gas": label,
-            "embedding_method": "none",
-            "retriever": "toy",
-            "retriever_version": spectra.__version__,
-            "uncertainty_source": "constant",
-            "pixel_size_m": float(scene.attrs.get("pixel_size_m", 0.0))
-            or float(np.sqrt(np.nanmedian(scene["pixel_area"].values))),
-        },
-    )
-    return product
-
-
 def make_unit_absorption_spectrum(
     wavelengths: npt.ArrayLike,
     *,
@@ -667,7 +569,6 @@ __all__ = [
     "DEFAULT_SCENE_ORIGIN_XY",
     "SCENE_COORDINATE_NAMES",
     "UNIT_ABSORPTION_UNITS",
-    "make_column_product",
     "make_plume_column",
     "make_sensor_scene",
     "make_unit_absorption_spectrum",

@@ -4,8 +4,8 @@ Every scene is given as explicit files (a scene table or command-line paths):
 the L1 radiance cube (``radiance(across, along, band)`` with ``wavelength`` and
 ``fwhm`` stored as data variables), the PARGE metadata file (projected ``x``/
 ``y`` with ``epsg`` attributes, ``lon``, ``lat``, terrain, viewing geometry),
-and optionally the shadow index, the cloud mask and the matched-filter
-product. The adapter derives nothing from directory layouts or file names.
+and optionally the shadow index and the cloud mask. The adapter derives
+nothing from directory layouts.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from spectra.contracts.errors import ContractError, MissingExtraError
 from spectra.contracts.sensor_scene import RADIANCE_UNITS
 from spectra.geometry.area import pixel_area_from_centres
 from spectra.geometry.crs import projected_crs_from_xy, spatial_ref_coordinate
-from spectra.retrievers.convert import isfinite, matched_filter_to_column_product
 from spectra.sensors.table import filter_rows, read_scene_table
 from spectra.types import Platform, SceneGeometry, SceneRecord
 
@@ -35,7 +34,6 @@ ROLES: dict[str, bool] = {
     "metadata": True,
     "shadow": False,
     "cloud": False,
-    "product": False,
 }
 
 
@@ -72,8 +70,8 @@ class Aviris4Adapter:
 
     Scenes are specified explicitly: a scene table (CSV/YAML, see
     :mod:`spectra.sensors.table`) or :meth:`record_from_files`. Roles are
-    ``radiance`` and ``metadata`` (required), ``shadow``, ``cloud`` and
-    ``product`` (optional).
+    ``radiance`` and ``metadata`` (required), ``shadow`` and ``cloud``
+    (optional).
 
     Args:
         chunks: Dask chunks used to open radiance cubes.
@@ -127,7 +125,6 @@ class Aviris4Adapter:
             center_lonlat=centre,
             bbox_lonlat=bbox,
             has_radiance=True,
-            has_product="product" in uris,
             extra=dict(extra or {}),
         )
 
@@ -141,7 +138,7 @@ class Aviris4Adapter:
         Args:
             scenes: CSV/YAML scene table or in-memory rows with the columns
                 ``scene_id`` (optional), ``radiance``, ``metadata``,
-                ``shadow``, ``cloud``, ``product``, ``background_group``
+                ``shadow``, ``cloud``, ``background_group``
                 (optional); extra columns are kept in ``SceneRecord.extra``.
             **filters: ``scene_id`` (string or iterable) or equality filters
                 on extra columns.
@@ -163,7 +160,6 @@ class Aviris4Adapter:
         *,
         shadow: str | Path | None = None,
         cloud: str | Path | None = None,
-        product: str | Path | None = None,
         scene_id: str | None = None,
         background_group: str | None = None,
     ) -> SceneRecord:
@@ -174,7 +170,6 @@ class Aviris4Adapter:
             "metadata": str(metadata),
             "shadow": "" if shadow is None else str(shadow),
             "cloud": "" if cloud is None else str(cloud),
-            "product": "" if product is None else str(product),
             "background_group": background_group or "",
         }
         return self.list_scenes([row])[0]
@@ -252,8 +247,8 @@ class Aviris4Adapter:
             scene["pixel_area"] = pixel_area_from_centres(metadata["x"], metadata["y"])
 
         mid_band = scene.sizes["band"] // 2
-        valid = isfinite(scene["radiance"].isel(band=mid_band)) & isfinite(
-            metadata["x"]
+        valid = (
+            scene["radiance"].isel(band=mid_band).notnull() & metadata["x"].notnull()
         )
         scene["valid"] = valid.astype(bool).drop_vars(
             [name for name in ("wavelength", "fwhm", "band") if name in valid.coords]
@@ -294,27 +289,5 @@ class Aviris4Adapter:
         ]
         return scene[names]
 
-    def open_product(self, record: SceneRecord) -> xr.Dataset:
-        """Open the matched-filter product of a flight line as a ``ColumnProduct``."""
-        if "product" not in record.uris:
-            raise ContractError(
-                f"Scene {record.scene_id} has no matched-filter product."
-            )
-        product = xr.open_dataset(record.uris["product"])
-        metadata = self._metadata(record)
-        attrs = {
-            "sensor": self.name,
-            "platform": self.platform,
-            "scene_id": record.scene_id,
-            "background_group": record.background_group,
-            "source_uris": json.dumps(dict(record.uris)),
-        }
-        return matched_filter_to_column_product(
-            product, attrs=attrs, geometry=metadata, retriever="aviris4_mf"
-        )
 
-
-# Former name, kept for existing callers.
-mf_product_to_column_product = matched_filter_to_column_product
-
-__all__ = ["ROLES", "Aviris4Adapter", "mf_product_to_column_product"]
+__all__ = ["ROLES", "Aviris4Adapter"]

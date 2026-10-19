@@ -29,15 +29,9 @@ from spectra.contracts.errors import ContractError
 from spectra.geometry.corners import cell_areas, cell_polygons
 from spectra.geometry.placement import PlacedColumn, place_column
 from spectra.regrid.base import RegridResult, check_mass, target_window_cells
-from spectra.regrid.results import finalize_result, map_data_array, scene_data_array
-from spectra.regrid.windows import (
-    anchor_pixel_centre,
-    map_anchor_centre,
-    map_window,
-    map_window_cells,
-    support_window,
-)
-from spectra.types import MapGrid, Placement, SceneGeometry, Window
+from spectra.regrid.results import finalize_result, scene_data_array
+from spectra.regrid.windows import anchor_pixel_centre, support_window
+from spectra.types import Placement, SceneGeometry, Window
 
 Norm = Literal["destarea", "fracarea"]
 NORMS: tuple[Norm, ...] = ("destarea", "fracarea")
@@ -435,40 +429,6 @@ class PolygonRegridder:
     ) -> xr.DataArray:
         """Return the column on the sensor grid, cropped to ``window``."""
         return self.regrid_to_scene(column, scene, placement, window=window).data
-
-    def regrid_to_map(
-        self, column: xr.DataArray, grid: MapGrid, placement: Placement
-    ) -> RegridResult:
-        """Place ``column`` on a regular map grid and return the full result.
-
-        The anchor cell is ``(grid.y[anchor_across], grid.x[anchor_along])``.
-        """
-        placed = place_column(
-            column,
-            crs=grid.crs,
-            anchor_target_xy=map_anchor_centre(grid, placement),
-            placement=placement,
-        )
-        y_slice, x_slice = map_window(placed, grid)
-        vx, vy, target_area = map_window_cells(grid, y_slice, x_slice)
-        values, source_mass, inside, target_mass = self._regrid(placed, vx, vy)
-        data = map_data_array(
-            values,
-            grid=grid,
-            y_slice=y_slice,
-            x_slice=x_slice,
-            placed=placed,
-            name=column.name,
-        )
-        return self._finalize(
-            data, placed, target_area, source_mass, inside, target_mass
-        )
-
-    def to_map(
-        self, column: xr.DataArray, grid: MapGrid, placement: Placement
-    ) -> xr.DataArray:
-        """Return the column on a regular map grid on dims ``(y, x)``."""
-        return self.regrid_to_map(column, grid, placement).data
 
 
 __all__ = [
