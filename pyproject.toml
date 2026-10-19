@@ -49,6 +49,7 @@ aviris4 = ["aviris4-ch4"]
 microhh = ["microhh-processing-chain"]
 dev = [
   "bump-my-version>=1,<2",
+  "h5py",
   "pre-commit",
   "pytest",
   "pytest-cov",
