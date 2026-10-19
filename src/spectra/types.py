@@ -16,6 +16,10 @@ from spectra.contracts.errors import ContractError
 Platform = Literal["airborne", "spaceborne"]
 RadianceLeg = Literal["solar", "view", "both"]
 AnchorCorner = Literal["lower left", "lower right", "upper left", "upper right"]
+# Point of the LES grid pinned to the anchor: the emission source or a corner cell.
+AnchorPoint = Literal[
+    "source", "lower left", "lower right", "upper left", "upper right"
+]
 Flip = Literal["none", "x", "y"]
 
 ANCHOR_CORNERS: tuple[AnchorCorner, ...] = (
@@ -24,6 +28,7 @@ ANCHOR_CORNERS: tuple[AnchorCorner, ...] = (
     "upper left",
     "upper right",
 )
+ANCHOR_POINTS: tuple[AnchorPoint, ...] = ("source", *ANCHOR_CORNERS)
 FLIPS: tuple[Flip, ...] = ("none", "x", "y")
 
 
@@ -344,31 +349,33 @@ class Placement:
     """How a plume column is placed on a sensor grid.
 
     Attributes:
-        mode: ``anchor`` places the selected LES corner cell on an anchor pixel;
-            ``georeferenced`` uses the georeference attributes of the column.
         anchor_along: Zero-based along-track index of the anchor pixel.
         anchor_across: Zero-based across-track index of the anchor pixel.
-        anchor_corner: LES grid corner cell placed on the anchor pixel centre.
+        anchor_corner: Point of the LES grid pinned to the anchor: the emission
+            source (``source_x``/``source_y`` of the column) or a corner cell.
         rotation_deg: Whole-degree rotation around the anchor, counterclockwise
             positive, after the reflection.
         flip: LES axis reflected around the anchor before the rotation.
         emission_scale: Multiplicative factor applied to the column.
         time_index: LES time index of the embedded snapshot.
+        anchor_xy: Exact projected anchor point; ``None`` uses the centre of
+            the anchor pixel. The anchor indices then name the pixel nearest
+            to the point.
     """
 
-    mode: Literal["anchor", "georeferenced"] = "anchor"
     anchor_along: int = 0
     anchor_across: int = 0
-    anchor_corner: AnchorCorner = "lower left"
+    anchor_corner: AnchorPoint = "lower left"
     rotation_deg: int = 0
     flip: Flip = "none"
     emission_scale: float = 1.0
     time_index: int = 0
+    anchor_xy: tuple[float, float] | None = None
 
     def __post_init__(self) -> None:
         """Validate the placement parameters."""
-        if self.anchor_corner not in ANCHOR_CORNERS:
-            raise ContractError(f"anchor_corner must be one of {ANCHOR_CORNERS}.")
+        if self.anchor_corner not in ANCHOR_POINTS:
+            raise ContractError(f"anchor_corner must be one of {ANCHOR_POINTS}.")
         if self.flip not in FLIPS:
             raise ContractError(f"flip must be one of {FLIPS}.")
         if isinstance(self.rotation_deg, bool) or not isinstance(
@@ -385,16 +392,15 @@ class Placement:
                 raise ContractError(f"{name} must be non-negative.")
         if not np.isfinite(self.emission_scale) or self.emission_scale <= 0:
             raise ContractError("emission_scale must be a positive finite number.")
-
-    @property
-    def flip_axis(self) -> Literal["x", "y"] | None:
-        """Return the reflected axis in the ``aviris4_ch4`` convention."""
-        return None if self.flip == "none" else self.flip
+        if self.anchor_xy is not None:
+            point = tuple(float(value) for value in self.anchor_xy)
+            if len(point) != 2 or not all(np.isfinite(point)):
+                raise ContractError("anchor_xy must be a finite (x, y) pair.")
+            object.__setattr__(self, "anchor_xy", point)
 
     def attrs(self) -> dict[str, Any]:
         """Return the placement as serialisable attributes."""
-        return {
-            "placement_mode": self.mode,
+        attrs: dict[str, Any] = {
             "anchor_along": int(self.anchor_along),
             "anchor_across": int(self.anchor_across),
             "anchor_corner": self.anchor_corner,
@@ -403,12 +409,17 @@ class Placement:
             "emission_scale": float(self.emission_scale),
             "time_index": int(self.time_index),
         }
+        if self.anchor_xy is not None:
+            attrs["anchor_x"], attrs["anchor_y"] = self.anchor_xy
+        return attrs
 
 
 __all__ = [
     "ANCHOR_CORNERS",
+    "ANCHOR_POINTS",
     "FLIPS",
     "AnchorCorner",
+    "AnchorPoint",
     "Flip",
     "Placement",
     "Platform",

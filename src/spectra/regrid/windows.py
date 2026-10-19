@@ -15,25 +15,18 @@ import numpy as np
 
 from spectra.contracts.errors import ContractError
 from spectra.geometry.placement import PlacedColumn
-from spectra.geometry.swath import anchor_pixel_spacing, swath_polygon, window_polygon
+from spectra.geometry.swath import (
+    anchor_pixel_spacing,
+    block,
+    candidate_region,
+    swath_polygon,
+    window_polygon,
+)
 from spectra.types import Placement, SceneGeometry, Window
 
-# Number of pixel centres loaded by the coarse pass of ``support_window``.
-_COARSE_SAMPLES = 20_000
 # Relative tolerance of the "window captures the support" area test. The
 # intersection vertices lie on shared edges, so ``covers`` is not robust.
 _COVER_RTOL = 1e-9
-
-
-def _block(
-    geometry: SceneGeometry, across: slice, along: slice
-) -> tuple[np.ndarray, np.ndarray]:
-    """Load a block of pixel-centre coordinates as float64 arrays."""
-    dim_across, dim_along = geometry.spatial_dims
-    indexer = {dim_across: across, dim_along: along}
-    x = np.asarray(geometry.x.isel(indexer).values, dtype=np.float64)
-    y = np.asarray(geometry.y.isel(indexer).values, dtype=np.float64)
-    return x, y
 
 
 def _require_pixel_pairs(geometry: SceneGeometry) -> tuple[int, int]:
@@ -48,7 +41,10 @@ def _require_pixel_pairs(geometry: SceneGeometry) -> tuple[int, int]:
 def anchor_pixel_centre(
     geometry: SceneGeometry, placement: Placement
 ) -> tuple[float, float]:
-    """Return the projected centre of the anchor pixel of a placement.
+    """Return the projected anchor point of a placement.
+
+    This is ``placement.anchor_xy`` when set (geographic anchors), otherwise
+    the centre of the anchor pixel.
 
     Raises:
         ContractError: If the anchor index lies outside the scene or the pixel
@@ -62,63 +58,15 @@ def anchor_pixel_centre(
             f"Anchor pixel (across={across}, along={along}) lies outside the "
             f"scene of shape {geometry.shape}."
         )
-    x, y = _block(geometry, slice(across, across + 1), slice(along, along + 1))
+    if placement.anchor_xy is not None:
+        return placement.anchor_xy
+    x, y = block(geometry, slice(across, across + 1), slice(along, along + 1))
     centre = (float(x[0, 0]), float(y[0, 0]))
     if not all(math.isfinite(value) for value in centre):
         raise ContractError(
             f"Anchor pixel (across={across}, along={along}) has no finite centre."
         )
     return centre
-
-
-def _coarse_strides(n_across: int, n_along: int) -> tuple[int, int]:
-    stride = max(1, math.ceil(math.sqrt(n_across * n_along / _COARSE_SAMPLES)))
-    return min(stride, max(1, n_across // 2)), min(stride, max(1, n_along // 2))
-
-
-def _candidate_region(
-    geometry: SceneGeometry, box: tuple[float, float, float, float]
-) -> Window:
-    """Return an index window that contains every pixel centre inside ``box``.
-
-    A strided subsample of the centres is tested against the box expanded by
-    the largest distance between a pixel and its coarse representative, so no
-    fine pixel inside the box can be missed; the fine test runs on the
-    returned block only.
-    """
-    n_across, n_along = geometry.shape
-    stride_across, stride_along = _coarse_strides(n_across, n_along)
-    x, y = _block(
-        geometry,
-        slice(0, n_across, stride_across),
-        slice(0, n_along, stride_along),
-    )
-    step_across = float(np.nanmax(np.hypot(np.diff(x, axis=0), np.diff(y, axis=0))))
-    step_along = float(np.nanmax(np.hypot(np.diff(x, axis=1), np.diff(y, axis=1))))
-    if not math.isfinite(step_across) or not math.isfinite(step_along):
-        raise ContractError("Scene pixel centres contain no finite spacing.")
-    # A fine pixel lies within one stride of its coarse representative along
-    # each axis; the factor two absorbs local spacing variations.
-    margin = 2.0 * (step_across + step_along)
-    found = (
-        (x >= box[0] - margin)
-        & (x <= box[2] + margin)
-        & (y >= box[1] - margin)
-        & (y <= box[3] + margin)
-    )
-    rows, columns = np.nonzero(found)
-    if rows.size == 0:
-        raise ContractError("No pixel centre lies inside the placed support.")
-    return Window(
-        across=slice(
-            max(0, int(rows.min()) * stride_across - stride_across),
-            min(n_across, int(rows.max()) * stride_across + stride_across + 1),
-        ),
-        along=slice(
-            max(0, int(columns.min()) * stride_along - stride_along),
-            min(n_along, int(columns.max()) * stride_along + stride_along + 1),
-        ),
-    )
 
 
 def _grow(window: Window, shape: tuple[int, int], amount: int) -> Window:
@@ -171,8 +119,8 @@ def support_window(
     )
     xmin, ymin, xmax, ymax = region.bounds
     box = (xmin - spacing, ymin - spacing, xmax + spacing, ymax + spacing)
-    candidate = _candidate_region(geometry, box)
-    x, y = _block(geometry, candidate.across, candidate.along)
+    candidate = candidate_region(geometry, box)
+    x, y = block(geometry, candidate.across, candidate.along)
     inside = (x >= box[0]) & (x <= box[2]) & (y >= box[1]) & (y <= box[3])
     rows, columns = np.nonzero(inside)
     if rows.size == 0:

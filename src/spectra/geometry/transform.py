@@ -130,23 +130,10 @@ def support_vertices(
     return np.column_stack((x - anchor[0], y - anchor[1]))
 
 
-def vertices_bounds(
-    vertices: npt.NDArray[np.floating],
-) -> tuple[float, float, float, float]:
-    """Return the axis-aligned bounds of ``(n, 2)`` polygon vertices."""
-    return (
-        float(np.min(vertices[:, 0])),
-        float(np.min(vertices[:, 1])),
-        float(np.max(vertices[:, 0])),
-        float(np.max(vertices[:, 1])),
-    )
-
-
 __all__ = [
     "anchor_cell_centre",
     "support_vertices",
     "transform_coordinates",
     "validate_flip",
     "validate_rotation",
-    "vertices_bounds",
 ]

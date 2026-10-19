@@ -490,8 +490,12 @@ def test_window_validation() -> None:
 
 def test_placement_validation() -> None:
     placement = Placement(rotation_deg=37, flip="x", emission_scale=2.0, time_index=1)
-    assert placement.flip_axis == "x" and Placement().flip_axis is None
     assert placement.attrs()["rotation_deg"] == 37
+    assert "anchor_x" not in placement.attrs()
+    exact = Placement(anchor_corner="source", anchor_xy=(500000, 5200000.5))
+    assert exact.anchor_xy == (500000.0, 5200000.5)
+    assert exact.attrs()["anchor_x"] == 500000.0
+    assert exact.attrs()["anchor_corner"] == "source"
     invalid: list[dict[str, object]] = [
         {"anchor_corner": "centre"},
         {"flip": "xy"},
@@ -506,6 +510,8 @@ def test_placement_validation() -> None:
         {"emission_scale": 0.0},
         {"emission_scale": -1.0},
         {"emission_scale": np.inf},
+        {"anchor_xy": (1.0, np.nan)},
+        {"anchor_xy": (1.0, 2.0, 3.0)},
     ]
     for kwargs in invalid:
         with pytest.raises(ContractError):

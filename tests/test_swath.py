@@ -1,6 +1,8 @@
-"""Plume placement in a sensor swath against the aviris4-ch4 golden fixture."""
+"""Plume placement in a sensor swath, partly against the aviris4-ch4 golden fixture."""
 
 from __future__ import annotations
+
+import functools
 
 import numpy as np
 import pyproj
@@ -10,20 +12,23 @@ from shapely.geometry import Polygon
 
 from spectra.contracts.errors import ContractError
 from spectra.geometry.corners import outline_polygon
+from spectra.geometry.crs import to_lonlat
+from spectra.geometry.placement import PlacedColumn, place_column
 from spectra.geometry.swath import (
     MassPoints,
-    ScenePlacement,
+    ResolvedAnchor,
     anchor_pixel_spacing,
+    locate_pixel,
     outside_fraction_bounds,
     outside_mass_fraction,
     pixel_centre,
-    place_in_scene,
     random_anchor,
+    resolve_anchor,
     swath_polygon,
-    window_covering_support,
     window_nodes,
     window_polygon,
 )
+from spectra.regrid.windows import anchor_pixel_centre, support_window
 from spectra.types import Placement, SceneGeometry, Window
 
 PLACEMENTS = ("rot", "flip", "partial")
@@ -39,24 +44,28 @@ def placement_from_record(record: dict) -> Placement:
     )
 
 
-def record_window(record: dict) -> Window:
-    return Window(
-        across=slice(record["across_slice"]["start"], record["across_slice"]["stop"]),
-        along=slice(record["along_slice"]["start"], record["along_slice"]["stop"]),
+def placed_on(
+    column: xr.DataArray, geometry: SceneGeometry, anchor: ResolvedAnchor
+) -> PlacedColumn:
+    return place_column(
+        column,
+        crs=geometry.crs,
+        anchor_target_xy=anchor_pixel_centre(geometry, anchor.placement),
+        placement=anchor.placement,
     )
 
 
 def assert_window_captures_support(
-    geometry: SceneGeometry, scene_placement: ScenePlacement
+    geometry: SceneGeometry, placed: PlacedColumn
 ) -> None:
-    """The window captures the whole in-swath support area."""
-    support = scene_placement.placed.support_polygon
-    outline = window_polygon(geometry, scene_placement.window)
-    inside = scene_placement.swath.intersection(support)
+    """The regridding window captures the whole in-swath support area."""
+    window = support_window(placed, geometry)
+    swath = swath_polygon(geometry)
+    support = placed.support_polygon
+    inside = swath.intersection(support)
     assert inside.area > 0
+    outline = window_polygon(geometry, window)
     assert outline.intersection(support).area >= inside.area * (1 - 1e-9)
-    if scene_placement.swath.covers(support):
-        assert outline.covers(support)
 
 
 @pytest.fixture(scope="module")
@@ -100,130 +109,162 @@ def test_pixel_centre_and_spacing(geometry: SceneGeometry, golden_metadata) -> N
 
 @pytest.mark.golden
 @pytest.mark.parametrize("name", PLACEMENTS)
-def test_explicit_placement_matches_record(
+def test_pixel_anchor_matches_record(
     golden_record: dict, geometry: SceneGeometry, column: xr.DataArray, name: str
 ) -> None:
     record = golden_record["placements"][name]
-    placement = placement_from_record(record)
-    scene_placement = place_in_scene(column, geometry, placement=placement)
-    draw = scene_placement.draw
-    assert scene_placement.mode == "explicit"
-    assert draw.attempts is None
-    assert (draw.along, draw.across) == (record["along_index"], record["across_index"])
-    assert scene_placement.window == record_window(record)
-    assert draw.outside_fraction == pytest.approx(record["outside_fraction"], abs=1e-12)
-    assert scene_placement.placed.offset_xy == pytest.approx(
+    expected = placement_from_record(record)
+    anchor = resolve_anchor(
+        column,
+        geometry,
+        mode="pixel",
+        corner=expected.anchor_corner,
+        rotation_deg=expected.rotation_deg,
+        flip=expected.flip,
+        along=record["along_index"],
+        across=record["across_index"],
+    )
+    assert anchor.mode == "pixel" and anchor.attempts is None
+    assert anchor.placement == expected
+    assert anchor.outside_fraction == pytest.approx(
+        record["outside_fraction"], abs=1e-12
+    )
+    placed = placed_on(column, geometry, anchor)
+    assert placed.offset_xy == pytest.approx(
         (record["x_offset"], record["y_offset"]), abs=1e-12
     )
-    assert scene_placement.placement == Placement(
-        anchor_along=record["along_index"],
-        anchor_across=record["across_index"],
-        anchor_corner=record["anchor"],
-        rotation_deg=record["rotation"],
-        flip=record["flip_axis"] or "none",
+    assert anchor.anchor_xy == pixel_centre(
+        geometry, record["along_index"], record["across_index"]
     )
-    attrs = scene_placement.attrs()
-    assert attrs["embedding_placement"] == "explicit"
-    assert attrs["embedding_outside_mass_fraction"] == draw.outside_fraction
-    assert "embedding_attempts" not in attrs
-    assert attrs["embedding_across_start"] == record["across_slice"]["start"]
-    assert attrs["embedding_along_stop"] == record["along_slice"]["stop"]
-    assert_window_captures_support(geometry, scene_placement)
+    assert_window_captures_support(geometry, placed)
 
 
 @pytest.mark.golden
-def test_random_placement_is_reproducible(
+def test_random_anchor_is_reproducible(
     geometry: SceneGeometry, column: xr.DataArray
 ) -> None:
-    kwargs = {"rotation_deg": -20, "anchor_corner": "upper left"}
-    first = place_in_scene(column, geometry, rng=np.random.default_rng(1), **kwargs)
-    second = place_in_scene(column, geometry, rng=np.random.default_rng(1), **kwargs)
-    assert first.mode == "random"
-    assert first.draw.outside_fraction == 0.0
-    assert first.draw.attempts is not None and first.draw.attempts >= 1
-    assert (first.draw.along, first.draw.across) == (
-        second.draw.along,
-        second.draw.across,
+    resolve = functools.partial(
+        resolve_anchor, column, geometry, rotation_deg=-20, corner="upper left"
     )
-    assert first.window == second.window
-    assert_window_captures_support(geometry, first)
+    first = resolve(mode="random", rng=np.random.default_rng(1))
+    second = resolve(mode="random", rng=np.random.default_rng(1))
+    assert first.mode == "random"
+    assert first.outside_fraction == 0.0
+    assert first.attempts is not None and first.attempts >= 1
+    assert first.placement == second.placement
     assert first.placement.rotation_deg == -20
     assert first.placement.anchor_corner == "upper left"
-    attrs = first.attrs()
-    assert attrs["embedding_placement"] == "random"
-    assert attrs["embedding_attempts"] == first.draw.attempts
-    assert attrs["embedding_min_outside_fraction"] == 0.0
-    assert attrs["embedding_max_outside_fraction"] == 0.0
+    assert first.placement.anchor_xy is None
+    assert_window_captures_support(geometry, placed_on(column, geometry, first))
 
 
 @pytest.mark.golden
-def test_random_placement_within_outside_bounds(
+def test_random_anchor_within_outside_bounds(
     geometry: SceneGeometry, column: xr.DataArray
 ) -> None:
     # The golden plume holds 99.5 % of its mass in the source column, so the
     # attainable outside fractions cluster near 0 and above 0.7.
-    scene_placement = place_in_scene(
+    anchor = resolve_anchor(
         column,
         geometry,
-        min_outside_fraction=0.5,
-        max_outside_fraction=0.95,
+        mode="random",
+        corner="lower left",
+        bounds=(0.5, 0.95),
         rng=np.random.default_rng(3),
     )
-    fraction = scene_placement.draw.outside_fraction
-    assert 0.5 <= fraction <= 0.95
-    assert scene_placement.bounds == (0.5, 0.95)
-    assert not scene_placement.swath.covers(scene_placement.placed.support_polygon)
-    assert_window_captures_support(geometry, scene_placement)
-    # The window never extends past the swath.
-    n_across, n_along = geometry.shape
-    assert scene_placement.window.across.start >= 0
-    assert scene_placement.window.across.stop <= n_across
-    assert scene_placement.window.along.stop <= n_along
+    assert 0.5 <= anchor.outside_fraction <= 0.95
+    placed = placed_on(column, geometry, anchor)
+    assert not swath_polygon(geometry).covers(placed.support_polygon)
+    assert_window_captures_support(geometry, placed)
 
 
 @pytest.mark.golden
-def test_random_placement_exhausts_attempts(
+def test_random_anchor_exhausts_attempts(
     geometry: SceneGeometry, column: xr.DataArray
 ) -> None:
     with pytest.raises(ContractError, match="draws"):
-        place_in_scene(
+        resolve_anchor(
             column,
             geometry,
-            min_outside_fraction=0.123456,
-            max_outside_fraction=0.123456,
+            mode="random",
+            corner="lower left",
+            bounds=(0.123456, 0.123456),
             rng=np.random.default_rng(0),
             max_attempts=1,
         )
 
 
 @pytest.mark.golden
-def test_place_in_scene_validation(
+def test_resolve_anchor_validation(
     geometry: SceneGeometry, column: xr.DataArray
 ) -> None:
-    placement = Placement(anchor_along=15, anchor_across=2)
-    with pytest.raises(ContractError, match="random placement"):
-        place_in_scene(column, geometry, placement=placement, max_outside_fraction=0.5)
+    resolve = functools.partial(resolve_anchor, column, geometry, corner="lower left")
+    with pytest.raises(ContractError, match="along and across"):
+        resolve(mode="pixel", along=15)
     with pytest.raises(ContractError, match="along"):
-        place_in_scene(column, geometry, placement=Placement(anchor_along=500))
+        resolve(mode="pixel", along=500, across=2)
     with pytest.raises(ContractError, match="across"):
-        place_in_scene(column, geometry, placement=Placement(anchor_across=500))
+        resolve(mode="pixel", along=2, across=500)
+    with pytest.raises(ContractError, match="lon and lat"):
+        resolve(mode="lonlat")
+    with pytest.raises(ContractError, match="Unknown anchor mode"):
+        resolve(mode="nowhere")  # type: ignore[arg-type]
     with pytest.raises(ContractError):
-        place_in_scene(
-            column, geometry, min_outside_fraction=0.5, max_outside_fraction=0.2
-        )
+        resolve(mode="random", bounds=(0.5, 0.2))
     with pytest.raises(ContractError):
-        place_in_scene(column, geometry, max_outside_fraction=1.0)
+        resolve(mode="random", bounds=(0.0, 1.0))
     with pytest.raises(ContractError):
-        place_in_scene(column, geometry, max_attempts=0)
+        resolve(mode="random", max_attempts=0)
     with pytest.raises(TypeError):
-        place_in_scene(column, geometry, rotation_deg=1.5)  # type: ignore[arg-type]
+        resolve(mode="random", rotation_deg=1.5)  # type: ignore[arg-type]
+    with pytest.raises(ContractError, match="source_x"):
+        resolve_anchor(column, geometry, mode="pixel", along=15, across=2)
     unitless = column.copy()
     unitless.attrs.pop("units")
     with pytest.raises(ContractError, match="dimensions"):
-        place_in_scene(column.rename({"x": "u"}), geometry, placement=placement)
+        resolve_anchor(
+            column.rename({"x": "u"}), geometry, mode="pixel", along=15, across=2
+        )
     with pytest.raises(ContractError, match="units"):
-        place_in_scene(unitless, geometry, placement=placement)
+        resolve_anchor(
+            unitless, geometry, mode="pixel", along=15, across=2, corner="lower left"
+        )
     assert outside_fraction_bounds(0, 0.5) == (0.0, 0.5)
+
+
+@pytest.mark.golden
+def test_lonlat_anchor_on_golden_swath(
+    geometry: SceneGeometry, column: xr.DataArray, golden_metadata: xr.Dataset
+) -> None:
+    sourced = column.assign_attrs(
+        source_x=float(column["x"][5]), source_y=float(column["y"][6])
+    )
+    # A point between pixel centres, in the interior of the swath.
+    x = 0.6 * float(golden_metadata["x"][20, 80]) + 0.4 * float(
+        golden_metadata["x"][21, 81]
+    )
+    y = 0.6 * float(golden_metadata["y"][20, 80]) + 0.4 * float(
+        golden_metadata["y"][21, 81]
+    )
+    lon, lat = (float(value) for value in to_lonlat(geometry.crs, x, y))
+    anchor = resolve_anchor(sourced, geometry, mode="lonlat", lonlat=(lon, lat))
+    assert anchor.mode == "lonlat" and anchor.attempts is None
+    assert anchor.placement.anchor_xy == pytest.approx((x, y), abs=1e-6)
+    assert anchor.anchor_xy == anchor.placement.anchor_xy
+    assert (anchor.placement.anchor_along, anchor.placement.anchor_across) == (80, 20)
+    placed = placed_on(sourced, geometry, anchor)
+    # The emission source cell centre lands exactly on the geographic anchor.
+    assert placed.anchor_source_xy == (
+        sourced.attrs["source_x"],
+        sourced.attrs["source_y"],
+    )
+    assert (placed.centre_x[6, 5], placed.centre_y[6, 5]) == pytest.approx(
+        (x, y), abs=1e-6
+    )
+    assert_window_captures_support(geometry, placed)
+    far_lon, far_lat = (float(v) for v in to_lonlat(geometry.crs, x + 5000.0, y))
+    with pytest.raises(ContractError, match="outside the swath"):
+        resolve_anchor(sourced, geometry, mode="lonlat", lonlat=(far_lon, far_lat))
 
 
 def test_outside_mass_fraction_synthetic() -> None:
@@ -292,30 +333,76 @@ def test_random_anchor_on_synthetic_geometry() -> None:
     )
     assert draw.outside_fraction == 0.0
     assert draw.along <= 17 and draw.across <= 8
-    window = window_covering_support(
-        geometry,
-        support + np.asarray((draw.anchor_x, draw.anchor_y)),
-        swath=swath,
-        covered=True,
-        anchor_index=(draw.along, draw.across),
+    placement = Placement(anchor_along=draw.along, anchor_across=draw.across)
+    column = xr.DataArray(
+        values,
+        dims=("y", "x"),
+        coords={"x": np.arange(3.0), "y": np.arange(2.0)},
+        attrs={"units": "kg m-2"},
     )
+    placed = place_column(
+        column,
+        crs=geometry.crs,
+        anchor_target_xy=(draw.anchor_x, draw.anchor_y),
+        placement=placement,
+    )
+    window = support_window(placed, geometry)
     assert window.along.start <= draw.along
     assert window.along.stop >= draw.along + 3
     assert window.across.stop >= draw.across + 2
 
 
-def test_scene_placement_attrs_keys(
-    geometry: SceneGeometry, column: xr.DataArray
-) -> None:
-    scene_placement = place_in_scene(
-        column, geometry, placement=Placement(anchor_along=15, anchor_across=2)
+def test_locate_pixel_matches_brute_force() -> None:
+    # Rotated, slightly sheared 7 m grid, 60 across x 400 along.
+    along, across = np.meshgrid(np.arange(400.0), np.arange(60.0), indexing="xy")
+    angle = np.deg2rad(23.0)
+    x = 500000.0 + 7.0 * (np.cos(angle) * along - np.sin(angle) * across) + 0.3 * across
+    y = 5200000.0 + 7.0 * (np.sin(angle) * along + np.cos(angle) * across)
+    geometry = SceneGeometry(
+        x=xr.DataArray(x, dims=("across", "along")).chunk({"along": 50}),
+        y=xr.DataArray(y, dims=("across", "along")).chunk({"along": 50}),
+        crs=pyproj.CRS.from_epsg(32632),
     )
-    assert isinstance(scene_placement, ScenePlacement)
-    assert set(scene_placement.attrs()) == {
-        "embedding_placement",
-        "embedding_outside_mass_fraction",
-        "embedding_across_start",
-        "embedding_across_stop",
-        "embedding_along_start",
-        "embedding_along_stop",
-    }
+    rng = np.random.default_rng(5)
+    for _ in range(25):
+        i, j = int(rng.integers(0, 60)), int(rng.integers(0, 400))
+        point = (x[i, j] + rng.uniform(-3, 3), y[i, j] + rng.uniform(-3, 3))
+        distance = np.hypot(x - point[0], y - point[1])
+        row, column = np.unravel_index(np.argmin(distance), distance.shape)
+        assert locate_pixel(geometry, point) == (int(column), int(row))
+
+
+def test_source_anchor_pins_emission_point() -> None:
+    values = np.zeros((4, 6))
+    values[1:3, 2:5] = 1.0
+    column = xr.DataArray(
+        values,
+        dims=("y", "x"),
+        coords={"x": 10.0 + 2.0 * np.arange(6), "y": 20.0 + 2.0 * np.arange(4)},
+        attrs={"units": "kg m-2", "source_x": 15.0, "source_y": 23.0},
+    )
+    placement = Placement(anchor_corner="source", rotation_deg=90, flip="x")
+    placed = place_column(
+        column,
+        crs=pyproj.CRS.from_epsg(32632),
+        anchor_target_xy=(1000.0, 2000.0),
+        placement=placement,
+    )
+    assert placed.anchor_source_xy == (15.0, 23.0)
+    # The source point is the pivot: it maps onto the target, the rest rotates.
+    assert placed.offset_xy == (985.0, 1977.0)
+    ny, nx = values.shape
+    # Cell (row 1, column 2) sits at (14, 22), i.e. (-1, -1) from the source;
+    # mirroring x gives (1, -1), rotating 90 deg counterclockwise (1, 1).
+    centre = placed.centre_x[1, 2], placed.centre_y[1, 2]
+    assert centre == pytest.approx((1001.0, 2001.0))
+    assert (ny, nx) == placed.shape
+    missing = column.copy()
+    missing.attrs = {"units": "kg m-2"}
+    with pytest.raises(ContractError, match="source_x"):
+        place_column(
+            missing,
+            crs=pyproj.CRS.from_epsg(32632),
+            anchor_target_xy=(0.0, 0.0),
+            placement=placement,
+        )

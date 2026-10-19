@@ -1,8 +1,9 @@
 """Pure placement of a plume snapshot in a projected coordinate system.
 
-A placement translates the selected corner cell of the LES grid onto a target
-point (usually a pixel centre), reflects the grid around that point and then
-rotates it, exactly as ``aviris4_ch4.regridding`` does. The result keeps the
+A placement translates the selected point of the LES grid (the emission source
+or a corner cell centre) onto a target point (a pixel centre or an exact
+projected position), reflects the grid around that point and then rotates it,
+as ``aviris4_ch4.regridding`` does for corner cells. The result keeps the
 transformed cell nodes, so conservative regridders can intersect LES cells
 with sensor pixels without any further assumption about the sensor.
 """
@@ -47,8 +48,9 @@ class PlacedColumn:
         centre_y: ``(ny, nx)`` transformed cell-centre y coordinates.
         crs: Projected CRS of the transformed coordinates.
         placement: Placement parameters that produced the transform.
-        anchor_source_xy: LES corner cell centre in the model frame.
-        anchor_target_xy: Target point the corner cell centre was placed on.
+        anchor_source_xy: LES anchor point (source or corner cell centre) in
+            the model frame.
+        anchor_target_xy: Target point the anchor point was placed on.
         dx: LES cell size along x in metres.
         dy: LES cell size along y in metres.
         support_bounds: Cell-edge bounds of the nonzero cells, model frame.
@@ -148,6 +150,29 @@ def column_support_bounds(
     )
 
 
+def anchor_source_point(
+    column: xr.DataArray, x: np.ndarray, y: np.ndarray, placement: Placement
+) -> tuple[float, float]:
+    """Return the LES point pinned to the anchor, in the model frame.
+
+    Raises:
+        ContractError: If the emission source is requested but the column has
+            no finite ``source_x``/``source_y`` attributes.
+    """
+    if placement.anchor_corner != "source":
+        return anchor_cell_centre(x, y, placement.anchor_corner)
+    try:
+        source = (float(column.attrs["source_x"]), float(column.attrs["source_y"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ContractError(
+            "Anchoring at the emission source needs numeric 'source_x' and "
+            "'source_y' attributes on the plume column."
+        ) from error
+    if not all(np.isfinite(source)):
+        raise ContractError("The plume column's source_x/source_y are not finite.")
+    return source
+
+
 def place_column(
     column: xr.DataArray,
     *,
@@ -157,16 +182,17 @@ def place_column(
 ) -> PlacedColumn:
     """Place a ``(y, x)`` plume snapshot in a projected CRS.
 
-    The selected corner cell centre of the LES grid is translated onto
-    ``anchor_target_xy``; the grid is then reflected around that point and
-    rotated around it, in this order.
+    The selected anchor point of the LES grid (the emission source at the
+    ``source_x``/``source_y`` attributes, or a corner cell centre) is
+    translated onto ``anchor_target_xy``; the grid is then reflected around
+    that point and rotated around it, in this order.
 
     Args:
         column: Non-negative column on uniform ``x``/``y`` cell-centre
             coordinates in metres, with a ``units`` attribute.
         crs: Projected CRS of ``anchor_target_xy``.
-        anchor_target_xy: Point the corner cell centre is placed on.
-        placement: Corner, reflection and rotation of the placement.
+        anchor_target_xy: Point the anchor point is placed on.
+        placement: Anchor point, reflection and rotation of the placement.
 
     Returns:
         The placed snapshot with transformed nodes and centres.
@@ -188,7 +214,7 @@ def place_column(
     if np.any(values < 0):
         raise ContractError("Column must not contain negative values.")
     support = column_support_bounds(values, x, y, dx, dy)
-    anchor_source = anchor_cell_centre(x, y, placement.anchor_corner)
+    anchor_source = anchor_source_point(column, x, y, placement)
     offset = (
         anchor_target_xy[0] - anchor_source[0],
         anchor_target_xy[1] - anchor_source[1],
@@ -231,4 +257,9 @@ def place_column(
     )
 
 
-__all__ = ["PlacedColumn", "column_support_bounds", "place_column"]
+__all__ = [
+    "PlacedColumn",
+    "anchor_source_point",
+    "column_support_bounds",
+    "place_column",
+]

@@ -1,15 +1,16 @@
 """Plume placement inside a sensor swath.
 
-The swath outline, the anchor-pixel draws, the outside-mass test and the
-index window covering the placed plume are ported from
-``aviris4_ch4.regridding`` and generalised to any sensor through
-:class:`~spectra.types.SceneGeometry`. Only boundary rows and columns of the
+The swath outline, the anchor-pixel draws and the outside-mass test are
+ported from ``aviris4_ch4.regridding`` and generalised to any sensor through
+:class:`~spectra.types.SceneGeometry`; geographic anchors and the emission
+source as anchor point are SPECTRA additions. Only boundary rows and columns of the
 pixel-centre arrays are read for the swath outline, because real swaths hold
 tens of millions of pixels.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -17,7 +18,7 @@ import numpy as np
 import numpy.typing as npt
 import shapely
 import xarray as xr
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 
 from spectra.contracts.errors import ContractError
 from spectra.geometry.corners import (
@@ -26,19 +27,21 @@ from spectra.geometry.corners import (
     require_finite,
     window_corner_nodes,
 )
-from spectra.geometry.placement import PlacedColumn, place_column
+from spectra.geometry.crs import from_lonlat
+from spectra.geometry.placement import place_column
 from spectra.geometry.transform import (
     support_vertices,
     transform_coordinates,
     validate_flip,
     validate_rotation,
-    vertices_bounds,
 )
-from spectra.types import AnchorCorner, Flip, Placement, SceneGeometry, Window
+from spectra.types import AnchorPoint, Flip, Placement, SceneGeometry, Window
 
 DEFAULT_MAX_ATTEMPTS = 10_000
 _ACROSS_CHUNK = 8
-PlacementMode = Literal["explicit", "random"]
+AnchorMode = Literal["lonlat", "pixel", "random"]
+# Number of pixel centres loaded by coarse searches over the scene geometry.
+_COARSE_SAMPLES = 20_000
 
 
 @dataclass(frozen=True)
@@ -248,6 +251,67 @@ def anchor_pixel_spacing(geometry: SceneGeometry, along: int, across: int) -> fl
     return spacing
 
 
+def block(
+    geometry: SceneGeometry, across: slice, along: slice
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load a block of pixel-centre coordinates as float64 arrays."""
+    dim_across, dim_along = geometry.spatial_dims
+    indexer = {dim_across: across, dim_along: along}
+    x = np.asarray(geometry.x.isel(indexer).values, dtype=np.float64)
+    y = np.asarray(geometry.y.isel(indexer).values, dtype=np.float64)
+    return x, y
+
+
+def coarse_strides(n_across: int, n_along: int) -> tuple[int, int]:
+    stride = max(1, math.ceil(math.sqrt(n_across * n_along / _COARSE_SAMPLES)))
+    return min(stride, max(1, n_across // 2)), min(stride, max(1, n_along // 2))
+
+
+def candidate_region(
+    geometry: SceneGeometry, box: tuple[float, float, float, float]
+) -> Window:
+    """Return an index window that contains every pixel centre inside ``box``.
+
+    A strided subsample of the centres is tested against the box expanded by
+    the largest distance between a pixel and its coarse representative, so no
+    fine pixel inside the box can be missed; the fine test runs on the
+    returned block only.
+    """
+    n_across, n_along = geometry.shape
+    stride_across, stride_along = coarse_strides(n_across, n_along)
+    x, y = block(
+        geometry,
+        slice(0, n_across, stride_across),
+        slice(0, n_along, stride_along),
+    )
+    step_across = float(np.nanmax(np.hypot(np.diff(x, axis=0), np.diff(y, axis=0))))
+    step_along = float(np.nanmax(np.hypot(np.diff(x, axis=1), np.diff(y, axis=1))))
+    if not math.isfinite(step_across) or not math.isfinite(step_along):
+        raise ContractError("Scene pixel centres contain no finite spacing.")
+    # A fine pixel lies within one stride of its coarse representative along
+    # each axis; the factor two absorbs local spacing variations.
+    margin = 2.0 * (step_across + step_along)
+    found = (
+        (x >= box[0] - margin)
+        & (x <= box[2] + margin)
+        & (y >= box[1] - margin)
+        & (y <= box[3] + margin)
+    )
+    rows, columns = np.nonzero(found)
+    if rows.size == 0:
+        raise ContractError("No pixel centre lies inside the placed support.")
+    return Window(
+        across=slice(
+            max(0, int(rows.min()) * stride_across - stride_across),
+            min(n_across, int(rows.max()) * stride_across + stride_across + 1),
+        ),
+        along=slice(
+            max(0, int(columns.min()) * stride_along - stride_along),
+            min(n_along, int(columns.max()) * stride_along + stride_along + 1),
+        ),
+    )
+
+
 def outside_mass_fraction(
     region: Polygon,
     support_rel: npt.NDArray[np.floating[Any]],
@@ -406,210 +470,110 @@ def random_anchor(
     )
 
 
-def window_covering_support(
-    geometry: SceneGeometry,
-    support_vertices: npt.NDArray[np.floating[Any]],
-    *,
-    swath: Polygon,
-    covered: bool,
-    anchor_index: tuple[int, int],
-) -> Window:
-    """Return a padded index window covering the in-swath plume support.
+def locate_pixel(geometry: SceneGeometry, xy: tuple[float, float]) -> tuple[int, int]:
+    """Return ``(along, across)`` of the pixel whose centre is nearest to ``xy``.
 
-    A support covered by the swath is bounded directly. A partially embedded
-    support is clipped to the swath first, because the window cannot extend
-    past the swath edge, and the window must then capture the whole in-swath
-    area.
+    A strided subsample locates the neighbourhood of the point; only that block
+    of the (possibly lazy) pixel-centre geometry is loaded.
 
-    Args:
-        geometry: Scene geometry.
-        support_vertices: ``(4, 2)`` absolute support rectangle vertices.
-        swath: Swath outline polygon.
-        covered: Whether the swath covers the support rectangle.
-        anchor_index: ``(along, across)`` anchor pixel indices.
-
-    Returns:
-        The covering window.
+    Raises:
+        ContractError: If no finite pixel centre lies near the point.
     """
-    n_across, n_along = geometry.shape
-    dim0 = geometry.spatial_dims[0]
-    support_polygon = Polygon(support_vertices)
-    partial = not covered
-    if partial:
-        inside = swath.intersection(support_polygon)
-        if inside.is_empty or inside.area <= 0:
-            raise ContractError("Translated plume support lies outside the swath.")
-        inside_area = float(inside.area)
-        # Pad by one pixel so a sub-pixel sliver still contains a pixel centre.
-        pad = anchor_pixel_spacing(geometry, anchor_index[0], anchor_index[1])
-        xmin, ymin, xmax, ymax = inside.bounds
-        xmin, ymin, xmax, ymax = xmin - pad, ymin - pad, xmax + pad, ymax + pad
-    else:
-        inside_area = float(support_polygon.area)
-        xmin, ymin, xmax, ymax = vertices_bounds(support_vertices)
-    across_min = n_across
-    across_max = -1
-    along_min = n_along
-    along_max = -1
-    for start in range(0, n_across, _ACROSS_CHUNK):
-        stop = min(n_across, start + _ACROSS_CHUNK)
-        rows = {dim0: slice(start, stop)}
-        x = np.asarray(geometry.x.isel(rows).values, dtype=float)
-        y = np.asarray(geometry.y.isel(rows).values, dtype=float)
-        inside_box = (x >= xmin) & (x <= xmax) & (y >= ymin) & (y <= ymax)
-        row_index, column_index = np.nonzero(inside_box)
-        if row_index.size:
-            across_min = min(across_min, start + int(row_index.min()))
-            across_max = max(across_max, start + int(row_index.max()))
-            along_min = min(along_min, int(column_index.min()))
-            along_max = max(along_max, int(column_index.max()))
-    if across_max < 0:
-        raise ContractError("Translated plume support contains no pixel centres.")
-
-    window = Window(
-        across=slice(max(0, across_min - 1), min(n_across, across_max + 2)),
-        along=slice(max(0, along_min - 1), min(n_along, along_max + 2)),
-    )
-    while True:
-        outline = window_polygon(geometry, window)
-        if partial:
-            # Intersection vertices lie on the shared swath/window edge, so an
-            # area comparison is robust where ``covers`` is not.
-            captured = outline.intersection(support_polygon).area
-            if captured >= inside_area * (1.0 - 1e-9):
-                break
-        elif outline.covers(support_polygon):
-            break
-        expanded = Window(
-            across=slice(
-                max(0, window.across.start - 1),
-                min(n_across, window.across.stop + 1),
-            ),
-            along=slice(
-                max(0, window.along.start - 1),
-                min(n_along, window.along.stop + 1),
-            ),
-        )
-        if expanded == window:
-            raise ContractError("Could not construct a window covering the plume.")
-        window = expanded
-    return window
+    x0, y0 = (float(value) for value in xy)
+    region = candidate_region(geometry, (x0, y0, x0, y0))
+    x, y = block(geometry, region.across, region.along)
+    distance = np.hypot(x - x0, y - y0)
+    if not np.isfinite(distance).any():
+        raise ContractError(f"No finite pixel centre lies near {xy}.")
+    row, column = np.unravel_index(int(np.nanargmin(distance)), distance.shape)
+    return region.along.start + int(column), region.across.start + int(row)
 
 
-@dataclass(frozen=True, eq=False)
-class ScenePlacement:
-    """A plume column placed in a sensor swath.
+@dataclass(frozen=True)
+class ResolvedAnchor:
+    """An anchor resolved on a scene, ready for regridding.
 
     Attributes:
-        placed: Transformed column in the scene CRS.
-        window: Index window covering the in-swath plume support.
-        draw: Anchor pixel and outside mass fraction.
-        placement: Placement with the resolved anchor indices.
-        swath: Swath outline polygon in the scene CRS.
-        mode: Whether the anchor was given explicitly or drawn.
-        bounds: Accepted outside-fraction bounds of a random draw.
-        column: The input column on its native ``(y, x)`` grid.
+        placement: Placement with the anchor pixel; for geographic anchors it
+            carries the exact projected point in ``anchor_xy`` and the nearest
+            pixel as anchor indices.
+        mode: How the anchor was given: ``lonlat``, ``pixel`` or ``random``.
+        anchor_xy: Projected point the LES anchor point is placed on.
+        outside_fraction: Plume mass fraction outside the swath.
+        attempts: Random draws needed; ``None`` for given anchors.
     """
 
-    placed: PlacedColumn
-    window: Window
-    draw: AnchorDraw
     placement: Placement
-    swath: Polygon
-    mode: PlacementMode
-    bounds: tuple[float, float]
-    column: xr.DataArray
-
-    def placement_attrs(self) -> dict[str, Any]:
-        """Return attributes describing how the anchor pixel was chosen."""
-        attrs: dict[str, Any] = {
-            "embedding_placement": self.mode,
-            "embedding_outside_mass_fraction": float(self.draw.outside_fraction),
-        }
-        if self.mode == "random":
-            attrs["embedding_min_outside_fraction"] = float(self.bounds[0])
-            attrs["embedding_max_outside_fraction"] = float(self.bounds[1])
-            attrs["embedding_attempts"] = int(self.draw.attempts or 0)
-        return attrs
-
-    def attrs(self) -> dict[str, Any]:
-        """Return the placement attributes and the ``embedding_*`` window bounds."""
-        return {**self.placement_attrs(), **self.window.attrs("embedding_")}
+    mode: AnchorMode
+    anchor_xy: tuple[float, float]
+    outside_fraction: float
+    attempts: int | None
 
 
-def place_in_scene(
+def resolve_anchor(
     column: xr.DataArray,
     geometry: SceneGeometry,
     *,
-    placement: Placement | None = None,
-    anchor_corner: AnchorCorner = "lower left",
+    mode: AnchorMode,
+    swath: Polygon | None = None,
+    corner: AnchorPoint = "source",
     rotation_deg: int = 0,
     flip: Flip = "none",
-    min_outside_fraction: float = 0.0,
-    max_outside_fraction: float = 0.0,
+    along: int | None = None,
+    across: int | None = None,
+    lonlat: tuple[float, float] | None = None,
+    bounds: tuple[float, float] = (0.0, 0.0),
     rng: np.random.Generator | None = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-) -> ScenePlacement:
-    """Place a plume column in a sensor swath.
+    emission_scale: float = 1.0,
+    time_index: int = 0,
+) -> ResolvedAnchor:
+    """Resolve where a plume column is anchored in a sensor swath.
 
-    The selected LES grid-corner cell centre is anchored to a pixel centre.
-    With ``placement`` the plume is embedded at its anchor pixel, whatever
-    part of it lies beyond the swath. Without it, anchor pixels are drawn
-    uniformly from the whole swath until the plume mass fraction outside the
-    swath lies between ``min_outside_fraction`` and ``max_outside_fraction``;
-    the defaults require a fully contained plume.
+    The LES anchor point (``corner``: the emission source or a corner cell
+    centre) is pinned to a geographic position (``lonlat``), a pixel centre
+    (``along``/``across``) or a random pixel centre. Random pixels are drawn
+    uniformly until the plume mass fraction outside the swath lies within
+    ``bounds``; the default requires a fully contained plume. Given anchors
+    are accepted whatever part of the plume lies beyond the swath, unless it
+    is all of it.
 
     Args:
         column: Non-negative ``(y, x)`` column on uniform coordinates with a
             ``units`` attribute.
         geometry: Scene geometry the column is placed in.
-        placement: Explicit anchor indices, corner, rotation and reflection.
-        anchor_corner: LES corner cell placed on the anchor pixel centre
-            (random placement).
-        rotation_deg: Whole-degree rotation around the anchor (random
-            placement).
-        flip: LES axis reflected before the rotation (random placement).
-        min_outside_fraction: Smallest accepted outside mass fraction.
-        max_outside_fraction: Largest accepted outside mass fraction.
-        rng: Random generator for the draw.
+        mode: ``lonlat``, ``pixel`` or ``random``.
+        swath: Swath outline; computed from ``geometry`` when omitted.
+        corner: LES point pinned to the anchor.
+        rotation_deg: Whole-degree rotation around the anchor.
+        flip: LES axis reflected before the rotation.
+        along: Anchor pixel along-track index (``pixel`` mode).
+        across: Anchor pixel across-track index (``pixel`` mode).
+        lonlat: Anchor longitude and latitude in degrees (``lonlat`` mode).
+        bounds: Accepted outside mass fractions (``random`` mode).
+        rng: Random generator (``random`` mode).
         max_attempts: Maximum number of random draws.
+        emission_scale: Emission scale carried by the placement.
+        time_index: LES time index carried by the placement.
 
     Returns:
-        The placed column, its covering window and the draw.
+        The resolved anchor with its placement and outside mass fraction.
 
     Raises:
-        ContractError: If the column, bounds, indices or placement are
-            invalid, if an explicit placement leaves no plume mass inside the
-            swath, or if no draw satisfies the bounds.
+        ContractError: If the inputs are invalid, the anchor leaves no plume
+            mass inside the swath, or no random draw satisfies ``bounds``.
     """
-    if placement is not None:
-        if (
-            min_outside_fraction != 0.0
-            or max_outside_fraction != 0.0
-            or rng is not None
-            or max_attempts != DEFAULT_MAX_ATTEMPTS
-        ):
-            raise ContractError(
-                "min_outside_fraction, max_outside_fraction, rng and max_attempts "
-                "only apply to random placement; omit placement to draw an "
-                "anchor pixel."
-            )
-        anchor_corner = placement.anchor_corner
-        rotation_deg = placement.rotation_deg
-        flip = placement.flip
-    bounds = outside_fraction_bounds(min_outside_fraction, max_outside_fraction)
-    max_attempts = _validate_max_attempts(max_attempts)
     rotation_deg = validate_rotation(rotation_deg)
     flip = validate_flip(flip)
     base = Placement(
-        anchor_corner=anchor_corner,
+        anchor_corner=corner,
         rotation_deg=rotation_deg,
         flip=flip,
-        emission_scale=placement.emission_scale if placement else 1.0,
-        time_index=placement.time_index if placement else 0,
+        emission_scale=emission_scale,
+        time_index=time_index,
     )
-    # A zero-offset placement validates the column and yields its anchor cell
-    # centre and support bounds before the anchor pixel is known.
+    # A zero-offset placement validates the column and yields its anchor point
+    # and support bounds before the anchor position is known.
     probe = place_column(
         column, crs=geometry.crs, anchor_target_xy=(0.0, 0.0), placement=base
     )
@@ -625,19 +589,17 @@ def place_in_scene(
         rotation_deg=rotation_deg,
         flip=flip,
     )
-    swath = swath_polygon(geometry)
+    if swath is None:
+        swath = swath_polygon(geometry)
     shapely.prepare(swath)
-    if placement is not None:
+    anchor_xy: tuple[float, float] | None = None
+    if mode == "pixel":
+        if along is None or across is None:
+            raise ContractError("A pixel anchor needs along and across indices.")
         draw = explicit_anchor(
-            geometry,
-            swath,
-            points,
-            support_rel,
-            along=placement.anchor_along,
-            across=placement.anchor_across,
+            geometry, swath, points, support_rel, along=along, across=across
         )
-        mode: PlacementMode = "explicit"
-    else:
+    elif mode == "random":
         draw = random_anchor(
             geometry,
             swath,
@@ -647,58 +609,70 @@ def place_in_scene(
             rng=rng,
             max_attempts=max_attempts,
         )
-        mode = "random"
-    resolved = Placement(
-        mode="anchor",
+    elif mode == "lonlat":
+        if lonlat is None:
+            raise ContractError("A geographic anchor needs lon and lat.")
+        lon, lat = (float(value) for value in lonlat)
+        x, y = from_lonlat(geometry.crs, lon, lat)
+        anchor_xy = (float(x), float(y))
+        if not all(np.isfinite(anchor_xy)) or not swath.covers(Point(anchor_xy)):
+            raise ContractError(
+                f"Anchor (lon={lon}, lat={lat}) lies outside the swath."
+            )
+        fraction = outside_mass_fraction(swath, support_rel, anchor_xy, points)
+        if fraction >= 1.0:
+            raise ContractError(
+                f"Anchor (lon={lon}, lat={lat}) places the whole plume outside "
+                "the swath."
+            )
+        pixel_along, pixel_across = locate_pixel(geometry, anchor_xy)
+        draw = AnchorDraw(
+            along=pixel_along,
+            across=pixel_across,
+            anchor_x=anchor_xy[0],
+            anchor_y=anchor_xy[1],
+            outside_fraction=fraction,
+            attempts=None,
+        )
+    else:
+        raise ContractError(f"Unknown anchor mode {mode!r}.")
+    placement = Placement(
         anchor_along=draw.along,
         anchor_across=draw.across,
-        anchor_corner=anchor_corner,
+        anchor_corner=corner,
         rotation_deg=rotation_deg,
         flip=flip,
-        emission_scale=base.emission_scale,
-        time_index=base.time_index,
+        emission_scale=emission_scale,
+        time_index=time_index,
+        anchor_xy=anchor_xy,
     )
-    placed = place_column(
-        column,
-        crs=geometry.crs,
-        anchor_target_xy=(draw.anchor_x, draw.anchor_y),
-        placement=resolved,
-    )
-    absolute_support = placed.support_vertices
-    window = window_covering_support(
-        geometry,
-        absolute_support,
-        swath=swath,
-        covered=bool(swath.covers(Polygon(absolute_support))),
-        anchor_index=(draw.along, draw.across),
-    )
-    return ScenePlacement(
-        placed=placed,
-        window=window,
-        draw=draw,
-        placement=resolved,
-        swath=swath,
+    return ResolvedAnchor(
+        placement=placement,
         mode=mode,
-        bounds=bounds,
-        column=column,
+        anchor_xy=(draw.anchor_x, draw.anchor_y),
+        outside_fraction=draw.outside_fraction,
+        attempts=draw.attempts,
     )
 
 
 __all__ = [
     "DEFAULT_MAX_ATTEMPTS",
     "AnchorDraw",
+    "AnchorMode",
     "MassPoints",
-    "PlacementMode",
-    "ScenePlacement",
+    "ResolvedAnchor",
     "anchor_pixel_spacing",
+    "block",
+    "candidate_region",
+    "coarse_strides",
     "explicit_anchor",
+    "locate_pixel",
     "outside_fraction_bounds",
     "outside_mass_fraction",
     "pixel_centre",
-    "place_in_scene",
     "random_anchor",
+    "resolve_anchor",
     "swath_polygon",
-    "window_covering_support",
     "window_nodes",
     "window_polygon",
 ]
