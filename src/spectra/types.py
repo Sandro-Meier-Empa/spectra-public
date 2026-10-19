@@ -66,6 +66,42 @@ class SceneRecord:
 
 
 @dataclass(frozen=True)
+class NativeLayout:
+    """Where an adapter's radiance lives in its native file.
+
+    The copy-and-patch exporter writes the attenuated pixels back through this
+    layout, so import and export share one dimension mapping.
+
+    Attributes:
+        role: File role holding the radiance, which is copied and patched.
+        variable: ``/``-separated path of the radiance variable in that file.
+        dims: Native dimension name to common dimension (``across``,
+            ``along`` or ``band``) for every dimension of the variable.
+    """
+
+    role: str
+    variable: str
+    dims: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        """Require a bijection between the native and common dimensions."""
+        values = sorted(self.dims.values())
+        if values != sorted(("across", "along", "band")) or len(self.dims) != 3:
+            raise ContractError(
+                "NativeLayout.dims must map three native dimensions onto "
+                f"'across', 'along' and 'band'; got {dict(self.dims)}."
+            )
+        if not self.role or not self.variable:
+            raise ContractError("NativeLayout needs a role and a variable path.")
+        object.__setattr__(self, "dims", dict(self.dims))
+
+    @property
+    def native_dims(self) -> dict[str, str]:
+        """Return the common dimension to native dimension mapping."""
+        return {common: native for native, common in self.dims.items()}
+
+
+@dataclass(frozen=True)
 class ViewingGeometry:
     """Observation geometry used by unit-absorption providers.
 
@@ -421,6 +457,7 @@ __all__ = [
     "AnchorCorner",
     "AnchorPoint",
     "Flip",
+    "NativeLayout",
     "Placement",
     "Platform",
     "RadianceLeg",
