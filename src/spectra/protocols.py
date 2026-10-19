@@ -107,6 +107,46 @@ class UnitAbsorptionProvider(Protocol):
 
 
 @runtime_checkable
+class ForwardModel(Protocol):
+    """Compute absorption look-up tables for the Lambert-Beer embedding.
+
+    Scene bands outside :attr:`spectral_range_nm` pass the embedding
+    unattenuated.
+    """
+
+    name: str
+
+    @property
+    def spectral_range_nm(self) -> tuple[float, float]:
+        """Wavelength range the model covers, in nanometres."""
+        ...
+
+    @property
+    def enhancements_ppm(self) -> tuple[float, ...]:
+        """Absorption-table nodes in ppm."""
+        ...
+
+    @property
+    def layer_height_m(self) -> float:
+        """Nominal lowest-layer height in metres."""
+        ...
+
+    def check(self, gas: str) -> None:
+        """Raise ``ContractError`` if the model cannot handle ``gas``."""
+        ...
+
+    def lut(
+        self, response: SpectralResponse, geometry: ViewingGeometry, *, gas: str
+    ) -> xr.Dataset:
+        """Return an absorption look-up table (``AbsorptionLut`` schema)."""
+        ...
+
+    def provenance(self) -> dict[str, Any]:
+        """Return the settings recorded with every embedding."""
+        ...
+
+
+@runtime_checkable
 class Retriever(Protocol):
     """Retrieve a column product from a sensor scene.
 
@@ -192,6 +232,7 @@ class Exporter(Protocol):
 
 __all__ = [
     "Exporter",
+    "ForwardModel",
     "Regridder",
     "Retriever",
     "SensorAdapter",
