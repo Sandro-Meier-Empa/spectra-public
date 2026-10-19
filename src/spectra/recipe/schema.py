@@ -35,6 +35,7 @@ ROTATION_MODES: tuple[str, ...] = ("uniform_int", "fixed", "list")
 RADIANCE_LEGS: tuple[str, ...] = ("solar", "view", "both")
 STATISTICS_SCOPES: tuple[str, ...] = ("window", "full_scene", "cached_scene")
 PRODUCT_FORMATS: tuple[str, ...] = ("netcdf", "zarr")
+EXTENTS: tuple[str, ...] = ("window", "scene")
 # Recipe keys holding paths that are resolved relative to the recipe file.
 _PATH_KEYS: tuple[tuple[str, ...], ...] = (
     ("sensor", "scenes"),
@@ -520,17 +521,25 @@ class SplitSpec:
 
 @dataclass(frozen=True)
 class OutputSpec:
-    """Where and how products are written.
+    """Where, how and for which consumer samples are written.
 
     Attributes:
         root: Dataset root; samples go to ``<root>/samples``.
         product_format: ``netcdf`` or ``zarr``.
         dataset_version: Immutable version label passed to prism.
+        exporter: Registered exporter (``prism``, ``column_product``,
+            ``radiance`` or a third-party one).
+        exporter_options: Exporter constructor options.
+        extent: ``window`` writes the embedding window, ``scene`` the full
+            scene with the window embedded (radiance method only).
     """
 
     root: str
     dataset_version: str
     product_format: str = "netcdf"
+    exporter: str = "prism"
+    exporter_options: dict[str, Any] = field(default_factory=dict)
+    extent: str = "window"
 
     def __post_init__(self) -> None:
         """Validate the format and the version label."""
@@ -540,6 +549,20 @@ class OutputSpec:
             self.product_format in PRODUCT_FORMATS,
             f"output.product_format must be one of {PRODUCT_FORMATS}.",
         )
+        _require(bool(self.exporter), "output.exporter is empty.")
+        _require(self.extent in EXTENTS, f"output.extent must be one of {EXTENTS}.")
+
+    @property
+    def needs_retrieval(self) -> bool:
+        """Return whether the exporter consumes a retrieved column product."""
+        from spectra.contracts.errors import MissingExtraError, PluginError
+        from spectra.registry import get_exporter
+
+        try:
+            exporter = get_exporter(self.exporter, **self.exporter_options)
+        except (PluginError, MissingExtraError) as error:
+            raise ContractError(f"output.exporter: {error}") from error
+        return bool(exporter.needs_retrieval)
 
     @property
     def suffix(self) -> str:
@@ -605,7 +628,8 @@ class Recipe:
         placement: Placement draws.
         method: ``radiance`` or ``product`` embedding.
         embedding: Regridder and LUT settings.
-        retrieval: Retrieval settings (radiance method only).
+        retrieval: Retrieval settings (radiance method only; omitted when
+            the exporter writes the embedded radiance).
         negatives: Plume-free sample fraction.
         labels: Label thresholds.
         split: Split assignment.
@@ -658,10 +682,26 @@ class Recipe:
                 "retrieval must be omitted for method 'product'; the adapter's "
                 "retrieved product is used.",
             )
-        else:
             _require(
-                self.retrieval is not None,
-                "retrieval is required for method 'radiance'.",
+                self.output.extent == "window",
+                "output.extent 'scene' needs method 'radiance'.",
+            )
+            _require(
+                self.output.needs_retrieval,
+                f"output.exporter {self.output.exporter!r} writes embedded "
+                "radiance; it needs method 'radiance'.",
+            )
+        else:
+            needs_retrieval = self.output.needs_retrieval
+            _require(
+                self.retrieval is not None or not needs_retrieval,
+                f"retrieval is required for method 'radiance' with exporter "
+                f"{self.output.exporter!r}.",
+            )
+            _require(
+                self.retrieval is None or needs_retrieval,
+                f"retrieval must be omitted: exporter {self.output.exporter!r} "
+                "writes the embedded radiance.",
             )
             _require(
                 self.embedding.unit_absorption is not None,
@@ -843,6 +883,7 @@ def dump_resolved(recipe: Recipe, path: str | Path) -> Path:
 __all__ = [
     "EMISSION_DISTRIBUTIONS",
     "EMISSION_UNITS",
+    "EXTENTS",
     "GROUP_COLUMNS",
     "METHODS",
     "PRODUCT_FORMATS",

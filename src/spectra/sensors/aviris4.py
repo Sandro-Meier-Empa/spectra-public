@@ -15,16 +15,16 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any
 
 import numpy as np
 import xarray as xr
 
 import spectra
-from spectra.contracts.column_product import convert_column_units
 from spectra.contracts.errors import ContractError, MissingExtraError
 from spectra.contracts.sensor_scene import RADIANCE_UNITS
+from spectra.geometry.area import pixel_area_from_centres
 from spectra.geometry.crs import projected_crs_from_xy, spatial_ref_coordinate
+from spectra.retrievers.convert import isfinite, matched_filter_to_column_product
 from spectra.sensors.table import filter_rows, read_scene_table
 from spectra.types import Platform, SceneGeometry, SceneRecord
 
@@ -65,115 +65,6 @@ def _scene_time(radiance: xr.Dataset, path: Path) -> np.datetime64:
             "acquisition time."
         ) from error
     return np.datetime64(stamp.tz_convert("UTC").tz_localize(None))
-
-
-def _isfinite(array: xr.DataArray) -> xr.DataArray:
-    """Return a dask-aware finite mask as a DataArray."""
-    return xr.apply_ufunc(np.isfinite, array, dask="allowed")
-
-
-def _pixel_area(x: xr.DataArray, y: xr.DataArray) -> xr.DataArray:
-    """Estimate pixel areas from neighbouring centre spacings (dask-aware).
-
-    The area is the parallelogram spanned by the across- and along-track
-    centre spacing vectors, so skew between the two directions is accounted
-    for; this matches the polygon areas of the regridders to the lattice's
-    local curvature.
-    """
-    across, along = (str(dim) for dim in x.dims)
-    # Work without index coordinates: padding would duplicate index values.
-    plain_x = xr.DataArray(x.data, dims=x.dims)
-    plain_y = xr.DataArray(y.data, dims=y.dims)
-    dxa = plain_x.diff(across).pad({across: (0, 1)}, mode="edge")
-    dya = plain_y.diff(across).pad({across: (0, 1)}, mode="edge")
-    dxl = plain_x.diff(along).pad({along: (0, 1)}, mode="edge")
-    dyl = plain_y.diff(along).pad({along: (0, 1)}, mode="edge")
-    area = abs(dxa * dyl - dya * dxl).transpose(across, along)
-    area = area.assign_coords({across: x[across], along: x[along]})
-    area.attrs = {"units": "m2", "long_name": "pixel area from centre spacing"}
-    return area
-
-
-def mf_product_to_column_product(
-    product: xr.Dataset,
-    *,
-    attrs: Mapping[str, Any],
-    geometry: xr.Dataset | None = None,
-    gas: str = "ch4",
-) -> xr.Dataset:
-    """Convert an ``aviris4_ch4`` matched-filter product to a ``ColumnProduct``.
-
-    Args:
-        product: Matched-filter output with ``CH4`` and ``uncertainty`` in
-            ppm-m and optional ``sensitivity``, ``retrieval_valid``,
-            ``background_valid``.
-        attrs: Scene attributes (``sensor``, ``scene_id``, ``background_group``).
-        geometry: Metadata dataset supplying ``x``, ``y``, ``lon``, ``lat`` on
-            the same grid, if available.
-        gas: Lower-case gas name of the output variables.
-
-    Returns:
-        Sensor-space column product in kg m-2.
-    """
-    label = gas.upper()
-    if label not in product or "uncertainty" not in product:
-        raise ContractError(
-            f"Matched-filter product must contain '{label}' and 'uncertainty'."
-        )
-    output = xr.Dataset(coords={"across": product["across"], "along": product["along"]})
-    output[f"{gas}_mass"] = convert_column_units(product[label], "kg m-2", gas=label)
-    output[f"{gas}_mass"].attrs.update(
-        {"native_units": product[label].attrs.get("units"), "native_variable": label}
-    )
-    output[f"{gas}_mass_uncertainty"] = convert_column_units(
-        product["uncertainty"], "kg m-2", gas=label
-    )
-    for name in ("sensitivity", "background_valid"):
-        if name in product:
-            output[name] = product[name]
-    if "sensitivity" in output:
-        # The matched filter labels the dimensionless factor "-"; prism uses "1".
-        output["sensitivity"].attrs["units"] = "1"
-    # A retrieval without a finite, positive uncertainty is not usable (the
-    # noise model is undefined for negative radiances), whatever the filter's
-    # own validity flag says.
-    finite = (
-        _isfinite(output[f"{gas}_mass"])
-        & _isfinite(output[f"{gas}_mass_uncertainty"])
-        & (output[f"{gas}_mass_uncertainty"] > 0)
-    )
-    if "retrieval_valid" in product:
-        valid = product["retrieval_valid"].astype(bool) & finite
-    else:
-        valid = finite
-    output["retrieval_valid"] = valid.astype(bool)
-    if geometry is not None:
-        coords = {
-            name: geometry[name]
-            for name in ("lon", "lat", "x", "y")
-            if name in geometry and geometry[name].dims == ("across", "along")
-        }
-        output = output.assign_coords(coords)
-        if "x" in coords and "y" in coords:
-            output = output.assign_coords(
-                spatial_ref=spatial_ref_coordinate(
-                    projected_crs_from_xy(coords["x"], coords["y"])
-                )
-            )
-            output["pixel_area"] = _pixel_area(coords["x"], coords["y"])
-    if "time" in product.coords:
-        output = output.assign_coords(time=product["time"])
-    output.attrs.update(product.attrs)
-    output.attrs.update(dict(attrs))
-    output.attrs.update(
-        {
-            "geometry_space": "sensor",
-            "retriever": output.attrs.get("retriever", "aviris4_mf"),
-            "gas": label,
-            "contract": "spectra.ColumnProduct",
-        }
-    )
-    return output
 
 
 class Aviris4Adapter:
@@ -358,10 +249,10 @@ class Aviris4Adapter:
             )
             scene["pixel_area"] = area.assign_attrs(units="m2")
         else:
-            scene["pixel_area"] = _pixel_area(metadata["x"], metadata["y"])
+            scene["pixel_area"] = pixel_area_from_centres(metadata["x"], metadata["y"])
 
         mid_band = scene.sizes["band"] // 2
-        valid = _isfinite(scene["radiance"].isel(band=mid_band)) & _isfinite(
+        valid = isfinite(scene["radiance"].isel(band=mid_band)) & isfinite(
             metadata["x"]
         )
         scene["valid"] = valid.astype(bool).drop_vars(
@@ -418,7 +309,12 @@ class Aviris4Adapter:
             "background_group": record.background_group,
             "source_uris": json.dumps(dict(record.uris)),
         }
-        return mf_product_to_column_product(product, attrs=attrs, geometry=metadata)
+        return matched_filter_to_column_product(
+            product, attrs=attrs, geometry=metadata, retriever="aviris4_mf"
+        )
 
+
+# Former name, kept for existing callers.
+mf_product_to_column_product = matched_filter_to_column_product
 
 __all__ = ["ROLES", "Aviris4Adapter", "mf_product_to_column_product"]

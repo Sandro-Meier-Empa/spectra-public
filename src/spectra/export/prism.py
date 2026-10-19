@@ -23,9 +23,9 @@ from spectra.contracts.column_product import (
     validate_column_product,
 )
 from spectra.contracts.errors import ContractError
+from spectra.export.io import SAMPLE_CHUNK, write_dataset
 
 PRISM_EMBEDDING_METHODS = ("product", "radiance", "none")
-SAMPLE_CHUNK = 512
 _FLOAT_CHANNELS = (
     "ch4_mass",
     "ch4_mass_uncertainty",
@@ -142,46 +142,14 @@ def write_product(
 ) -> Path:
     """Write a prism product as consolidated Zarr (``.zarr``) or NetCDF.
 
-    Args:
-        dataset: Product from :func:`to_prism_product`.
-        uri: Destination path; the suffix selects the format.
-        overwrite: Replace an existing store or file.
-
-    Returns:
-        The written path.
+    Thin wrapper of :func:`spectra.export.io.write_dataset`.
     """
-    path = Path(uri)
-    if path.exists() and not overwrite:
-        raise FileExistsError(f"Refusing to overwrite existing product: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Samples are window sized: load them and give every spatial variable the
-    # same chunk layout, otherwise readers that combine variables (prism's
-    # sample derivation) end up with irregular dask chunks Zarr rejects.
-    encoded = dataset.load().copy()
-    for name, variable in encoded.variables.items():
-        encoded[name].encoding = {}
-        if np.issubdtype(variable.dtype, np.datetime64):
-            encoded[name].encoding.update({"units": "seconds since 1970-01-01"})
-    if path.suffix == ".zarr":
-        if path.exists():
-            import shutil
-
-            shutil.rmtree(path)
-        chunks = tuple(
-            min(int(size), SAMPLE_CHUNK)
-            for size in (encoded.sizes.get("y", 1), encoded.sizes.get("x", 1))
-        )
-        encoding = {
-            name: {"chunks": chunks}
-            for name, variable in encoded.data_vars.items()
-            if tuple(variable.dims) == ("y", "x")
-        }
-        encoded.to_zarr(path, mode="w", consolidated=True, encoding=encoding)
-    else:
-        if path.exists():
-            path.unlink()
-        encoded.to_netcdf(path)
-    return path
+    return write_dataset(dataset, uri, overwrite=overwrite)
 
 
-__all__ = ["PRISM_EMBEDDING_METHODS", "to_prism_product", "write_product"]
+__all__ = [
+    "PRISM_EMBEDDING_METHODS",
+    "SAMPLE_CHUNK",
+    "to_prism_product",
+    "write_product",
+]

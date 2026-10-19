@@ -97,6 +97,11 @@ class LibRadtranArtsProvider(UnitAbsorptionProviderBase):
         self._models: dict[tuple[object, ...], UnitAbsorption] = {}
 
     @property
+    def spectral_range_nm(self) -> tuple[float, float]:
+        """Wavelength range the forward model covers; other bands are not embedded."""
+        return (float(self.wmin), float(self.wmax))
+
+    @property
     def provider_version(self) -> str:
         """Version of ``aviris4_ch4`` providing the forward model."""
         try:

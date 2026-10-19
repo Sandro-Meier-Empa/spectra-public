@@ -1,4 +1,4 @@
-"""Entry-point registry of sensor adapters, retrievers, providers and regridders."""
+"""Entry-point registry of the SPECTRA plugin groups (adapters to exporters)."""
 
 from __future__ import annotations
 
@@ -7,25 +7,30 @@ from typing import Literal, cast
 
 from spectra.contracts.errors import MissingExtraError, PluginError
 from spectra.protocols import (
+    Exporter,
     Regridder,
     Retriever,
     SensorAdapter,
     UnitAbsorptionProvider,
 )
 
-PluginGroup = Literal["sensors", "retrievers", "unit_absorption", "regridders"]
+PluginGroup = Literal[
+    "sensors", "retrievers", "unit_absorption", "regridders", "exporters"
+]
 
 GROUPS: dict[PluginGroup, str] = {
     "sensors": "spectra.sensors",
     "retrievers": "spectra.retrievers",
     "unit_absorption": "spectra.unit_absorption",
     "regridders": "spectra.regridders",
+    "exporters": "spectra.exporters",
 }
 _PROTOCOLS: dict[PluginGroup, type] = {
     "sensors": SensorAdapter,
     "retrievers": Retriever,
     "unit_absorption": UnitAbsorptionProvider,
     "regridders": Regridder,
+    "exporters": Exporter,
 }
 # Import names of optional dependencies mapped to the pip extra providing them.
 _EXTRAS: dict[str, str] = {
@@ -116,9 +121,15 @@ def get_regridder(name: str, **options: object) -> Regridder:
     return cast(Regridder, load_plugin("regridders", name, **options))
 
 
+def get_exporter(name: str, **options: object) -> Exporter:
+    """Return the exporter registered under ``name``."""
+    return cast(Exporter, load_plugin("exporters", name, **options))
+
+
 __all__ = [
     "GROUPS",
     "PluginGroup",
+    "get_exporter",
     "get_regridder",
     "get_retriever",
     "get_sensor",

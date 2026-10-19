@@ -12,7 +12,7 @@ import xarray as xr
 from spectra.contracts.errors import ContractError, MissingExtraError
 from spectra.contracts.lut import validate_unit_absorption_spectrum
 from spectra.contracts.sensor_scene import select_bands
-from spectra.sensors.aviris4 import mf_product_to_column_product
+from spectra.retrievers.convert import matched_filter_to_column_product
 from spectra.types import RetrievalSettings
 
 DEFAULT_CHUNKS: dict[str, int] = {"across": 8, "along": -1, "band": -1}
@@ -42,6 +42,12 @@ def _target_for_bands(target: xr.Dataset, wavelength: np.ndarray) -> xr.Dataset:
         selected["gas"] = xr.DataArray(
             np.array(str(target.attrs.get("gas", "CH4")), dtype=object)
         )
+    # aviris4_ch4 reads the location as scalar variables; providers other than
+    # libradtran_arts only carry it in the UnitAbsorptionSpectrum attributes.
+    for name in ("latitude", "longitude"):
+        if name not in selected.variables:
+            value = float(target.attrs.get(name, np.nan))
+            selected = selected.assign_coords({name: value})
     return selected
 
 
@@ -168,8 +174,8 @@ class Aviris4MatchedFilter:
             if key in scene.attrs
         }
         gas = str(target_ds["gas"].values).lower() if "gas" in target_ds else "ch4"
-        product = mf_product_to_column_product(
-            retrieved, attrs=attrs, geometry=scene, gas=gas
+        product = matched_filter_to_column_product(
+            retrieved, attrs=attrs, geometry=scene, gas=gas, retriever=self.name
         )
         product.attrs.update(
             {

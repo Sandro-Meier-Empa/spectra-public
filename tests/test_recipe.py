@@ -40,7 +40,7 @@ from spectra.recipe import (
     recipe_from_mapping,
     recipe_hash,
 )
-from spectra.recipe.generate import RunCache
+from spectra.recipe.generate import RunCache, retrieval_settings
 from spectra.recipe.params import GenerationContext, params_from_table
 from spectra.sensors.toy import ToySensorAdapter
 from spectra.testing import make_plume_column
@@ -190,10 +190,30 @@ def test_recipe_validation_names_keys(toy_env: dict[str, Any]) -> None:
         recipe_from_mapping(
             radiance_mapping(toy_env, sensor={"name": "toy", "root": "unused"})
         )
+    with pytest.raises(ContractError, match="plume_mask_threshold_kg_m2"):
+        recipe_from_mapping(
+            radiance_mapping(
+                toy_env,
+                retrieval={"retriever": "toy", "plume_mask_threshold_kg_m2": -1.0},
+            )
+        )
     assert Path(
         recipe_from_mapping(radiance_mapping(toy_env), base=Path("/base")).sensor.scenes
         or ""
     ) == Path("/base/unused")
+
+
+def test_retrieval_settings_carry_plume_masking(toy_env: dict[str, Any]) -> None:
+    retrieval = {
+        "retriever": "toy",
+        "exclude_injected_from_background": True,
+        "plume_mask_threshold_kg_m2": 2e-4,
+    }
+    recipe = recipe_from_mapping(radiance_mapping(toy_env, retrieval=retrieval))
+    settings = retrieval_settings(recipe)
+    assert settings is not None
+    assert settings.exclude_injected_from_background
+    assert settings.plume_mask_threshold_kg_m2 == 2e-4
 
 
 def test_assign_splits_is_deterministic_and_fills_positive_splits() -> None:

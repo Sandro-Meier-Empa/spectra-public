@@ -39,6 +39,8 @@ class ToyUnitAbsorption(UnitAbsorptionProviderBase):
         strength: Peak unit absorption of each line in ppm-1 m-1.
         width_nm: Full width at half maximum of the lines in nanometres.
         saturation_ppm_m: Slant path amount at which the lines weaken to half.
+        spectral_range_nm: Optional ``(min, max)`` wavelength range the
+            provider covers, to mimic forward models with a limited range.
     """
 
     name = "toy"
@@ -50,6 +52,7 @@ class ToyUnitAbsorption(UnitAbsorptionProviderBase):
         strength: Sequence[float] = (2.0e-5, 3.0e-5, 2.5e-5),
         width_nm: float = 10.0,
         saturation_ppm_m: float = 1.0e6,
+        spectral_range_nm: Sequence[float] | None = None,
     ) -> None:
         """Validate and store the line parameters."""
         self.lines_nm = np.asarray(lines_nm, dtype=float)
@@ -62,6 +65,12 @@ class ToyUnitAbsorption(UnitAbsorptionProviderBase):
             raise ContractError("width_nm and saturation_ppm_m must be positive.")
         self.width_nm = float(width_nm)
         self.saturation_ppm_m = float(saturation_ppm_m)
+        self.spectral_range_nm: tuple[float, float] | None = None
+        if spectral_range_nm is not None:
+            lower, upper = (float(value) for value in spectral_range_nm)
+            if not lower < upper:
+                raise ContractError("spectral_range_nm must be an increasing pair.")
+            self.spectral_range_nm = (lower, upper)
 
     def line_shape(self, wavelength: np.ndarray) -> np.ndarray:
         """Return the unsaturated, positive line profile sum on ``wavelength``."""

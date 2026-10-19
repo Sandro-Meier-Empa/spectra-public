@@ -150,9 +150,24 @@ def _add_common_embed_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
+        "--exporter",
+        default=None,
+        help=(
+            "Registered exporter shaping the output (prism, column_product, "
+            "radiance, ...). Default column_product, or radiance with "
+            "--no-retrieval."
+        ),
+    )
+    parser.add_argument(
+        "--exporter-option",
+        action="append",
+        metavar="KEY=VALUE",
+        help="Exporter option.",
+    )
+    parser.add_argument(
         "--prism",
         action="store_true",
-        help="Write the output on the prism (y, x) grid through spectra.export.prism.",
+        help="Shortcut for --exporter prism (the prism (y, x) sample contract).",
     )
 
 
@@ -196,7 +211,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Provider option.",
     )
     radiance.add_argument("--retriever", default="aviris4_mf")
-    radiance.add_argument("--noise-model-file", default=None)
+    radiance.add_argument(
+        "--noise-model-file",
+        default=None,
+        help="Shortcut for --retriever-option noise_model_file=PATH.",
+    )
     radiance.add_argument(
         "--retriever-option",
         action="append",
@@ -221,6 +240,24 @@ def _build_parser() -> argparse.ArgumentParser:
             "Retrieval wavelength window; repeatable. Default 1480-1800 and 2080-2500."
         ),
     )
+    radiance.add_argument(
+        "--embed-band-window",
+        nargs=2,
+        type=float,
+        action="append",
+        metavar=("MIN_NM", "MAX_NM"),
+        help=(
+            "Bands kept in the embedded radiance with --no-retrieval; repeatable. "
+            "Default: every band of the scene (bands outside the provider's "
+            "range pass through unattenuated)."
+        ),
+    )
+    radiance.add_argument(
+        "--extent",
+        choices=("window", "scene"),
+        default="window",
+        help="Embed into the plume window only or write back into the full scene.",
+    )
     radiance.add_argument("--min-n-samples", type=int, default=7000)
     radiance.add_argument(
         "--exclude-injected-from-background",
@@ -234,7 +271,19 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="KG_M2",
         help="Injected column (kg m-2) above which a pixel is masked. Default 0.",
     )
-    radiance.add_argument("--serial", action="store_true")
+    radiance.add_argument(
+        "--serial",
+        action="store_true",
+        help="Shortcut for --retriever-option parallel=false.",
+    )
+    radiance.add_argument(
+        "--no-retrieval",
+        action="store_true",
+        help=(
+            "Write the embedded radiance instead of retrieving it "
+            "(shortcut for --exporter radiance)."
+        ),
+    )
     radiance.set_defaults(func=cmd_embed, method="radiance")
 
     product = embed_sub.add_parser(
@@ -349,10 +398,33 @@ def _scene_record(adapter: SensorAdapter, args: argparse.Namespace) -> SceneReco
         raise
 
 
+def _exporter_name(args: argparse.Namespace) -> str:
+    """Resolve the exporter from --exporter and its shortcuts."""
+    names = set()
+    if args.exporter:
+        names.add(args.exporter)
+    if args.prism:
+        names.add("prism")
+    if getattr(args, "no_retrieval", False):
+        names.add("radiance")
+    if len(names) > 1:
+        _fail(
+            f"Conflicting outputs {sorted(names)}: choose one of --exporter, "
+            "--prism and --no-retrieval."
+        )
+    return names.pop() if names else "column_product"
+
+
 def cmd_embed(args: argparse.Namespace) -> None:
-    from spectra.export.prism import to_prism_product, write_product
-    from spectra.pipeline import EmbeddingSpec, embed_sample, log_nodes
+    from spectra.pipeline import (
+        EmbeddingSpec,
+        embed_radiance_sample,
+        embed_sample,
+        log_nodes,
+        place_and_regrid,
+    )
     from spectra.registry import (
+        get_exporter,
         get_regridder,
         get_retriever,
         get_sensor,
@@ -363,6 +435,11 @@ def cmd_embed(args: argparse.Namespace) -> None:
     save_path = Path(args.save_path)
     if save_path.exists() and not args.overwrite:
         _fail(f"{save_path} exists; pass --overwrite to replace it.")
+    exporter = get_exporter(
+        _exporter_name(args), **_parse_options(args.exporter_option)
+    )
+    if args.method == "product" and not exporter.needs_retrieval:
+        _fail(f"Exporter {exporter.name!r} needs the radiance method.")
 
     adapter = get_sensor(args.sensor, **_parse_options(args.adapter_option))
     record = _scene_record(adapter, args)
@@ -401,12 +478,6 @@ def cmd_embed(args: argparse.Namespace) -> None:
                 if value is not None:
                     provider_options.setdefault(key, value)
         provider = get_unit_absorption_provider(args.provider, **provider_options)
-        retriever_options = _parse_options(args.retriever_option)
-        if args.retriever == "aviris4_mf":
-            if args.noise_model_file is not None:
-                retriever_options.setdefault("noise_model_file", args.noise_model_file)
-            retriever_options.setdefault("parallel", not args.serial)
-        retriever = get_retriever(args.retriever, **retriever_options)
         windows = tuple(tuple(window) for window in (args.band_window or []))
         settings = RetrievalSettings(
             statistics_scope="window",
@@ -423,20 +494,39 @@ def cmd_embed(args: argparse.Namespace) -> None:
             ),
             layer_height_m=args.layer_height,
         )
-        result = embed_sample(
-            scene,
-            column,
-            placement,
-            method="radiance",
-            regridder=regridder,
-            spec=spec,
-            provider=provider,
-            retriever=retriever,
-            settings=settings,
-        )
-    if args.prism:
-        result = to_prism_product(result)
-    write_product(result, save_path, overwrite=args.overwrite)
+        if not exporter.needs_retrieval:
+            injected = place_and_regrid(scene, column, placement, regridder=regridder)
+            embed_windows = tuple(
+                tuple(window) for window in (args.embed_band_window or [])
+            )
+            result = embed_radiance_sample(
+                scene,
+                injected,
+                provider,
+                spec=spec,
+                band_windows_nm=embed_windows or None,
+                extent=args.extent,
+            )
+        else:
+            retriever_options = _parse_options(args.retriever_option)
+            if args.noise_model_file is not None:
+                retriever_options.setdefault("noise_model_file", args.noise_model_file)
+            if args.serial:
+                retriever_options.setdefault("parallel", False)
+            retriever = get_retriever(args.retriever, **retriever_options)
+            result = embed_sample(
+                scene,
+                column,
+                placement,
+                method="radiance",
+                regridder=regridder,
+                spec=spec,
+                provider=provider,
+                retriever=retriever,
+                settings=settings,
+                extent=args.extent,
+            )
+    exporter.write(exporter.prepare(result), save_path, overwrite=args.overwrite)
     print(f"Wrote {save_path}")
 
 

@@ -56,7 +56,7 @@ recipe file. Defaults are shown; keys without a default are required.
 | `embedding.regridder`, `regridder_options` | `polygon`, `{}` | Conservative regridder plugin. |
 | `embedding.lut` | `{0.01, 200.0, 12, 1000.0, both}` | `enhancement_min_ppm`, `enhancement_max_ppm`, `n_nodes` (log-spaced), `layer_height_m`, `radiance_leg`. |
 | `embedding.unit_absorption` | `null` | `{provider, options}`; required for `radiance`. |
-| `retrieval` | `null` | `{retriever, options, statistics_scope: window, target_enhancement_ppm: 10, band_windows_nm, min_n_samples: 7000, exclude_injected_from_background: false, plume_mask_threshold_kg_m2: 0}`; required for `radiance`. With `exclude_injected_from_background`, pixels whose injected column exceeds `plume_mask_threshold_kg_m2` are excluded from the background statistics. |
+| `retrieval` | `null` | `{retriever, options, statistics_scope: window, target_enhancement_ppm: 10, band_windows_nm, min_n_samples: 7000, exclude_injected_from_background: false, plume_mask_threshold_kg_m2: 0}`; required for `radiance` unless the exporter writes embedded radiance (then it must be omitted). With `exclude_injected_from_background`, pixels whose injected column exceeds `plume_mask_threshold_kg_m2` are excluded from the background statistics. |
 | `negatives.fraction` | `0.0` | Probability that a sample carries no plume. |
 | `labels.detection_snr`, `ambiguous_snr` | `2.0`, `1.0` | prism label thresholds (recorded on products and passed to `prism-compose-dataset`). |
 | `split.ratios` | `{train: 0.7, val: 0.15, test: 0.15}` | Group and sample fractions; must sum to 1. |
@@ -65,6 +65,8 @@ recipe file. Defaults are shown; keys without a default are required.
 | `output.root` | required | Dataset root; samples go to `<root>/samples`. |
 | `output.product_format` | `netcdf` | `netcdf` or `zarr`. |
 | `output.dataset_version` | required | Immutable version label for prism. |
+| `output.exporter`, `exporter_options` | `prism`, `{}` | Registered exporter (`spectra.exporters`): `prism` (prism `(y, x)` sample contract), `column_product` (retrieved `ColumnProduct` in sensor geometry, for other ML frameworks), `radiance` (embedded `SensorScene`, no retrieval) or a third-party one. |
+| `output.extent` | `window` | `window` writes the sample window; `scene` the full scene with the window embedded (radiance method). |
 | `compute.chunks` | `{}` | Dask chunks passed to `open_scene`. |
 | `compute.slurm` | `null` | `{account, run_time, array_size, tasks_per_job: 1, uenv, partition, cluster: eiger, processor: cpu}`. |
 
@@ -120,21 +122,25 @@ every product and pairings row.
 |---|---|
 | `RUN/context.json`, `RUN/params.parquet` | Context and parameter table of the dry run. |
 | `RUN/recipe.resolved.yaml`, `RUN/recipe_hash.txt`, `RUN/lut_coverage.json` | Resolved recipe, its hash, LUT check. |
-| `output.root/samples/<sample_id>.nc|.zarr` | prism products (`spectra.export.prism`) with the provenance attributes `sensor, scene_id, background_group, les_model, les_case, tracer, source_id, time_index, simulation_time_s, emission_rate_kg_s, emission_scale, rotation_deg, flip, anchor_*, window_*, pixel_size_m, injected_source_y/x, recipe_name, recipe_hash, params_hash, pair_id, spectra_version, created_utc, labels_*` plus the `embedding_*`/`regrid_*` attributes of the pipeline; `wind_u`/`wind_v` channels are the plume wind transformed with the placement. |
+| `output.root/samples/<sample_id>.nc|.zarr` | Samples written by `output.exporter` (prism products by default) with the provenance attributes `sensor, scene_id, background_group, les_model, les_case, tracer, source_id, time_index, simulation_time_s, emission_rate_kg_s, emission_scale, rotation_deg, flip, anchor_*, window_*, pixel_size_m, injected_source_y/x, recipe_name, recipe_hash, params_hash, pair_id, spectra_version, created_utc, labels_*` plus the `embedding_*`/`regrid_*` attributes of the pipeline; `wind_u`/`wind_v` channels are the plume wind transformed with the placement. |
 | `RUN/shards/pairings_<shard|all>.csv` | Pairings rows of one `generate` call. |
 | `RUN/pairings.csv`, `RUN/dataset.json` | Merged table (`finalize`: completeness and group-independence checks) and summary. |
 
 The pairings columns (`spectra.export.pairings.PAIRINGS_COLUMNS`) start with
 the prism requirements `sample_id, product_uri, background_group, les_case,
 source_id, split, sensor`, then `source_y, source_x` (the placed LES source
-mapped to the nearest window pixel in prism's `(y, x)` layout; empty for
-negatives) and the provenance columns `scene_id, tracer, time_index,
+mapped to the nearest window pixel in prism's `(y, x)` layout, or scene pixel
+with `output.extent: scene`; empty for negatives) and the provenance columns `scene_id, tracer, time_index,
 simulation_time_s, emission_rate_kg_h, emission_scale, rotation_deg, flip,
 anchor_corner, anchor_along, anchor_across, window_across_start,
 window_along_start, embedding_method, retriever, unit_absorption_provider,
 regridder, mf_statistics_scope, uncertainty_source, column_convention,
 pixel_size_m, pair_id, plume_uri, scene_uri, recipe_hash, params_hash,
 spectra_version`.
+
+`spectra export-prism` needs `output.exporter: prism`; the pairings table is
+written for every exporter and serves as the sample index of other
+consumers.
 
 ## Slurm usage (CSCS Alps)
 

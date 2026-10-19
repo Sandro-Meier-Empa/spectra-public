@@ -721,6 +721,10 @@ def test_retrieval_settings_validation() -> None:
         RetrievalSettings(target_enhancement_ppm=0.0)
     with pytest.raises(ContractError):
         RetrievalSettings(min_n_samples=0)
+    assert RetrievalSettings().plume_mask_threshold_kg_m2 == 0.0
+    for threshold in (-1e-6, float("nan")):
+        with pytest.raises(ContractError, match="plume_mask_threshold"):
+            RetrievalSettings(plume_mask_threshold_kg_m2=threshold)
 
 
 # --- registry ----------------------------------------------------------------

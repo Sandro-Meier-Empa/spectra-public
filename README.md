@@ -64,6 +64,14 @@ spectra embed radiance --sensor aviris4 \
   --arts-path /path/to/data-unit-abs-spec/arts --xch4-bg 1.93191 \
   --noise-model-file /path/to/emit_noise.txt --min-n-samples 7000 \
   --save-path embedded.nc --prism
+# same, but stop after the Lambert-Beer step: --no-retrieval (= --exporter
+# radiance) writes the embedded radiance (SensorScene with injected_ch4_mass)
+# with every band of the cube; --extent scene writes the full flight line
+spectra embed radiance ... --no-retrieval --extent scene --save-path embedded_radiance.nc
+# any retriever on any sensor; --exporter picks the output (column_product,
+# the default, keeps the sensor-space ColumnProduct for other ML frameworks)
+spectra embed radiance --sensor <adapter> ... --retriever <retriever> \
+  --exporter column_product --save-path embedded_product.nc
 # product method: add the column onto the retrieved product
 spectra embed product --sensor aviris4 \
   --radiance /path/to/L1/line_0001_rdn.nc \
@@ -82,7 +90,24 @@ spectra finalize recipe.yaml --out dataset/
 prism-compose-dataset dataset/pairings.csv $PRISM_DATA_ROOT/v1 --dataset-version v1
 ```
 
-`notebooks/embed_aviris4.ipynb` walks through the same chain in Python.
+`notebooks/embed_aviris4.ipynb` walks through the same chain in Python. The
+radiance method runs as three steps that can also be called one after another,
+e.g. to keep the embedded radiance without retrieving it:
+
+```python
+from spectra.pipeline import embed_radiance_sample, place_and_regrid, retrieve_embedded
+
+injected = place_and_regrid(scene, column, placement, regridder=regridder)
+embedded = embed_radiance_sample(scene, injected, provider, spec=spec)  # radiance
+product = retrieve_embedded(                                            # optional MF
+    embedded, retriever=retriever, settings=settings, provider=provider, spec=spec
+)
+```
+
+`embed_sample` chains the three steps. Sensor adapters, retrievers and
+exporters combine freely through the contracts; see
+[`docs/plugins.md`](docs/plugins.md) for the combinations and for adding a
+retriever such as the EMIT (emit-ghg) matched filter.
 
 ## Testing
 

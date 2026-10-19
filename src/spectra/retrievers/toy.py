@@ -42,6 +42,19 @@ def _valid(scene: xr.Dataset) -> np.ndarray:
     return np.asarray(scene["valid"].transpose(*SPATIAL_DIMS).values, dtype=bool)
 
 
+def _background(scene: xr.Dataset, settings: RetrievalSettings) -> np.ndarray:
+    """Return the pixels usable as background as a ``(across, along)`` array.
+
+    Valid pixels, minus the ``plume_mask`` when the settings exclude the
+    injected plume and the scene carries a mask.
+    """
+    background = _valid(scene)
+    if settings.exclude_injected_from_background and "plume_mask" in scene:
+        plume = scene["plume_mask"].transpose(*SPATIAL_DIMS).values
+        background = background & ~np.asarray(plume, dtype=bool)
+    return background
+
+
 def _select_target(
     scene: xr.Dataset, target: xr.Dataset, settings: RetrievalSettings
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -118,7 +131,9 @@ class ToyRetriever:
         """Return the mean valid spectrum of every across-track column.
 
         Args:
-            scene: ``SensorScene`` dataset assumed free of plumes.
+            scene: ``SensorScene`` dataset, assumed free of plumes unless
+                ``settings.exclude_injected_from_background`` is set and the
+                scene carries a ``plume_mask``.
             settings: Retrieval settings; recorded in the attributes.
 
         Returns:
@@ -126,7 +141,11 @@ class ToyRetriever:
             and ``n_samples(across)``.
         """
         radiance = _radiance(scene)
-        usable = _valid(scene)[:, :, None] & np.isfinite(radiance) & (radiance > 0)
+        usable = (
+            _background(scene, settings)[:, :, None]
+            & np.isfinite(radiance)
+            & (radiance > 0)
+        )
         total = np.where(usable, radiance, 0.0).sum(axis=1)
         count = usable.sum(axis=1)
         mean = np.divide(
@@ -295,6 +314,12 @@ class ToyRetriever:
                 "retriever": self.name,
                 "retriever_version": self.version,
                 "retrieval_statistics_scope": settings.statistics_scope,
+                "retrieval_exclude_injected_from_background": int(
+                    settings.exclude_injected_from_background
+                ),
+                "retrieval_plume_mask_threshold_kg_m2": float(
+                    settings.plume_mask_threshold_kg_m2
+                ),
                 "retrieval_n_bands": n_bands,
                 "retrieval_wavelength_min_nm": float(
                     scene["wavelength"].values[bands].min()

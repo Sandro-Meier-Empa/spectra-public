@@ -84,6 +84,11 @@ polygon = "spectra.regrid.polygon:PolygonRegridder"
 bucket = "spectra.regrid.bucket:BucketRegridder"
 cdo = "spectra.regrid.cdo:CdoRegridder"
 
+[project.entry-points."spectra.exporters"]
+prism = "spectra.export.exporters:PrismExporter"
+column_product = "spectra.export.exporters:ColumnProductExporter"
+radiance = "spectra.export.exporters:RadianceExporter"
+
 [project.urls]
 Homepage = "https://gitlab.empa.ch/abt503/users/mesa/spectra"
 Repository = "https://gitlab.empa.ch/abt503/users/mesa/spectra.git"

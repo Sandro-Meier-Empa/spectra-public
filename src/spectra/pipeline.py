@@ -3,6 +3,14 @@
 The functions here are the building blocks shared by the ``spectra embed``
 command and the recipe-driven generator. Sensor-specific behaviour enters only
 through the adapter, provider, retriever and regridder plugins.
+
+The radiance method runs as three steps that can be called one after another:
+:func:`place_and_regrid` (locate and regrid the column), :func:`embed_radiance_sample`
+(Lambert-Beer embedding into the window or the full scene) and
+:func:`retrieve_embedded` (retrieval of the embedded radiance with any
+registered retriever). :func:`embed_sample` chains all of them. The embedded
+radiance keeps every band it is given; bands the unit-absorption provider does
+not cover pass through unattenuated.
 """
 
 from __future__ import annotations
@@ -32,6 +40,8 @@ from spectra.types import (
 )
 
 EmbeddingMethod = Literal["radiance", "product"]
+EmbeddingExtent = Literal["window", "scene"]
+EMBEDDING_EXTENTS: tuple[str, ...] = ("window", "scene")
 
 
 @dataclass(frozen=True)
@@ -129,6 +139,44 @@ def scene_window(
     return scene.isel(window.indexers), window
 
 
+def provider_bands(provider: UnitAbsorptionProvider, scene: xr.Dataset) -> xr.Dataset:
+    """Return the scene bands inside the provider's optional ``spectral_range_nm``.
+
+    Raises:
+        ContractError: If no scene band lies inside the provider's range.
+    """
+    span = getattr(provider, "spectral_range_nm", None)
+    if span is None:
+        return scene
+    lower, upper = (float(value) for value in span)
+    return select_bands(scene, ((lower, upper),))
+
+
+def target_spectrum(
+    provider: UnitAbsorptionProvider,
+    scene: xr.Dataset,
+    settings: RetrievalSettings,
+    spec: EmbeddingSpec,
+    *,
+    window: Window | None = None,
+) -> xr.Dataset:
+    """Return the retrieval target spectrum on the scene's retrieval bands.
+
+    Only bands inside ``settings.band_windows_nm`` and the provider's spectral
+    range are modelled, so full-spectrum cubes need no forward model outside
+    the retrieval windows.
+    """
+    bands = select_bands(provider_bands(provider, scene), settings.band_windows_nm)
+    return provider.spectrum(
+        SpectralResponse.from_scene(bands),
+        ViewingGeometry.from_scene(scene, window=window),
+        enhancement_ppm=settings.target_enhancement_ppm,
+        gas=spec.gas.upper(),
+        layer_height_m=spec.layer_height_m,
+        radiance_leg=spec.radiance_leg,
+    )
+
+
 def build_lut(
     provider: UnitAbsorptionProvider,
     scene: xr.Dataset,
@@ -136,9 +184,13 @@ def build_lut(
     *,
     window: Window | None = None,
 ) -> xr.Dataset:
-    """Build the absorption table of a scene window with a provider."""
+    """Build the absorption table of a scene window with a provider.
+
+    The table covers the scene bands inside the provider's
+    ``spectral_range_nm`` (all bands when the provider declares none).
+    """
     geometry = ViewingGeometry.from_scene(scene, window=window)
-    response = SpectralResponse.from_scene(scene)
+    response = SpectralResponse.from_scene(provider_bands(provider, scene))
     return provider.lut(
         response,
         geometry,
@@ -149,6 +201,36 @@ def build_lut(
     )
 
 
+def _attenuated_bands(radiance: xr.DataArray, lut: xr.Dataset) -> np.ndarray:
+    """Return the band mask of the radiance wavelengths tabulated in ``lut``."""
+    wavelength = np.asarray(radiance["wavelength"].values, dtype=float)
+    covered = np.isin(wavelength, np.asarray(lut["wavelength"].values, dtype=float))
+    if not covered.any():
+        raise ContractError(
+            "The absorption table covers none of the scene wavelengths; build it "
+            "for this scene."
+        )
+    return covered
+
+
+def _merge_bands(
+    radiance: xr.DataArray, attenuated: xr.DataArray, covered: np.ndarray
+) -> xr.DataArray:
+    """Return ``radiance`` with the ``covered`` bands replaced by ``attenuated``."""
+    if covered.all():
+        return attenuated
+    passthrough = radiance.isel(band=np.flatnonzero(~covered)).astype(attenuated.dtype)
+    merged = xr.concat(
+        [attenuated, passthrough], dim="band", coords="minimal", compat="override"
+    )
+    order = np.argsort(
+        np.concatenate([np.flatnonzero(covered), np.flatnonzero(~covered)])
+    )
+    merged = merged.isel(band=order).transpose(*radiance.dims)
+    merged.attrs = dict(attenuated.attrs)
+    return merged
+
+
 def embed_radiance(
     scene_window: xr.Dataset,
     injected: xr.DataArray,
@@ -156,7 +238,11 @@ def embed_radiance(
     *,
     spec: EmbeddingSpec,
 ) -> xr.Dataset:
-    """Attenuate the window radiance with the injected column (Lambert-Beer)."""
+    """Attenuate the window radiance with the injected column (Lambert-Beer).
+
+    Bands tabulated in ``lut`` are attenuated; the other bands pass through
+    unchanged (the forward model does not cover them).
+    """
     from spectra.spectral.embedding import (
         embed_column_in_radiance,
         embedding_provenance,
@@ -167,15 +253,17 @@ def embed_radiance(
         [name for name in injected.coords if name not in scene_window.coords],
         errors="ignore",
     )
+    radiance = scene_window["radiance"]
+    covered = _attenuated_bands(radiance, lut)
     attenuated = embed_column_in_radiance(
-        scene_window["radiance"],
+        radiance.isel(band=np.flatnonzero(covered)) if not covered.all() else radiance,
         column,
         lut,
         gas=spec.gas,
         column_convention=spec.column_convention,
     )
     embedded = scene_window.copy()
-    embedded["radiance"] = attenuated
+    embedded["radiance"] = _merge_bands(radiance, attenuated, covered)
     embedded[f"injected_{spec.gas}_mass"] = injected_column(
         column, gas=spec.gas, convention=spec.column_convention
     )
@@ -192,6 +280,131 @@ def embed_radiance(
             regridder=str(injected.attrs.get("regrid_method", "")),
         )
     )
+    wavelength = np.asarray(radiance["wavelength"].values, dtype=float)[covered]
+    embedded.attrs.update(
+        {
+            "embedding_attenuated_band_count": int(covered.sum()),
+            "embedding_attenuated_wavelength_min_nm": float(wavelength.min()),
+            "embedding_attenuated_wavelength_max_nm": float(wavelength.max()),
+        }
+    )
+    return embedded
+
+
+def _paste_window(
+    full: xr.DataArray, part: xr.DataArray, window: Window, *, fill: float
+) -> xr.DataArray:
+    """Return ``full`` with its positional ``window`` replaced by ``part`` (lazy)."""
+    part = part.transpose(*full.dims)
+    widths: dict[Any, tuple[int, int]] = {}
+    for dim, piece in (("across", window.across), ("along", window.along)):
+        widths[dim] = (int(piece.start), int(full.sizes[dim] - piece.stop))
+    padded = xr.DataArray(part.data, dims=part.dims).pad(widths, constant_values=fill)
+    inside = np.zeros((full.sizes["across"], full.sizes["along"]), dtype=bool)
+    inside[window.across, window.along] = True
+    values = xr.where(
+        xr.DataArray(inside, dims=("across", "along")),
+        padded,
+        xr.DataArray(full.data, dims=full.dims),
+    )
+    return full.copy(data=values.transpose(*full.dims).data.astype(full.dtype))
+
+
+def embedded_scene(
+    scene: xr.Dataset, embedded_window: xr.Dataset, *, gas: str = "ch4"
+) -> xr.Dataset:
+    """Write an embedded window back into its full scene.
+
+    Pixels outside the window keep their radiance; the injected column is
+    zero outside the window. Dask-backed scenes stay lazy.
+
+    Args:
+        scene: Full ``SensorScene`` the window was cut from, with the same
+            bands as ``embedded_window``.
+        embedded_window: Window from :func:`embed_radiance`.
+        gas: Lower-case gas name of the injected column.
+
+    Returns:
+        Full ``SensorScene`` carrying ``injected_*_mass`` and the embedding
+        provenance.
+    """
+    name = f"injected_{gas}_mass"
+    injected = embedded_window[name]
+    window = Window.from_attrs(injected.attrs, prefix="window_")
+    if not np.array_equal(
+        np.asarray(scene["wavelength"].values),
+        np.asarray(embedded_window["wavelength"].values),
+    ):
+        raise ContractError("The scene and the embedded window have different bands.")
+    full = scene.copy()
+    full["radiance"] = _paste_window(
+        scene["radiance"], embedded_window["radiance"], window, fill=np.nan
+    )
+    template = xr.zeros_like(scene["valid"], dtype=injected.dtype)
+    full[name] = _paste_window(template, injected, window, fill=0.0)
+    full[name].attrs = dict(injected.attrs)
+    full.attrs.update(
+        {
+            key: value
+            for key, value in embedded_window.attrs.items()
+            if key.startswith("embedding_") or key == "sensor"
+        }
+    )
+    return full
+
+
+def embed_radiance_sample(
+    scene: xr.Dataset,
+    injected: xr.DataArray,
+    provider: UnitAbsorptionProvider | None = None,
+    *,
+    spec: EmbeddingSpec | None = None,
+    band_windows_nm: tuple[tuple[float, float], ...] | None = None,
+    lut: xr.Dataset | None = None,
+    extent: EmbeddingExtent = "window",
+) -> xr.Dataset:
+    """Embed a regridded column into the radiance of a scene.
+
+    The output follows the input: every band of ``scene`` is kept (bands the
+    provider or ``lut`` does not cover pass through unattenuated), and
+    ``extent`` selects the embedding window or the full scene.
+
+    Args:
+        scene: ``SensorScene`` the column was regridded onto.
+        injected: Column from :func:`place_and_regrid`.
+        provider: Unit-absorption provider building the absorption table.
+        spec: Radiance-embedding settings.
+        band_windows_nm: Inclusive wavelength ranges to keep; all bands of
+            the scene when omitted.
+        lut: Prebuilt absorption table of the window; skips the provider.
+        extent: ``"window"`` returns the embedding window, ``"scene"`` the
+            full scene with the window embedded.
+
+    Returns:
+        Embedded ``SensorScene`` carrying ``injected_*_mass`` and the
+        embedding provenance.
+
+    Raises:
+        ContractError: If neither a provider nor an absorption table is
+            given, or if ``extent`` is unknown.
+    """
+    if provider is None and lut is None:
+        raise ContractError(
+            "Radiance embedding needs a provider or an absorption table."
+        )
+    if extent not in EMBEDDING_EXTENTS:
+        raise ContractError(f"extent must be one of {EMBEDDING_EXTENTS}.")
+    spec = spec or EmbeddingSpec()
+    if band_windows_nm is not None:
+        scene = select_bands(scene, band_windows_nm)
+    window_scene, _ = scene_window(scene, injected)
+    if lut is None:
+        assert provider is not None
+        lut = build_lut(provider, window_scene, spec)
+    embedded = embed_radiance(window_scene, injected, lut, spec=spec)
+    if extent == "scene":
+        embedded = embedded_scene(scene, embedded, gas=spec.gas)
+    embedded.attrs["spectra_version"] = spectra.__version__
     return embedded
 
 
@@ -210,18 +423,56 @@ def _provenance(attrs: Mapping[Any, Any]) -> dict[Any, Any]:
 
 def retrieve_embedded(
     embedded: xr.Dataset,
-    target: xr.Dataset,
+    target: xr.Dataset | None = None,
     *,
     retriever: Retriever,
     settings: RetrievalSettings,
     gas: str = "ch4",
     background_stats: xr.Dataset | None = None,
+    provider: UnitAbsorptionProvider | None = None,
+    spec: EmbeddingSpec | None = None,
 ) -> xr.Dataset:
-    """Retrieve the embedded window and carry the injected truth and provenance."""
+    """Retrieve the embedded window and carry the injected truth and provenance.
+
+    With ``settings.exclude_injected_from_background`` the retriever receives
+    a ``plume_mask`` marking pixels whose injected column exceeds
+    ``settings.plume_mask_threshold_kg_m2``, unless the scene already has one.
+
+    Args:
+        embedded: Embedded window or scene from :func:`embed_radiance_sample`.
+        target: Retrieval target spectrum; built with ``provider`` when omitted.
+        retriever: Retriever plugin.
+        settings: Retrieval settings.
+        gas: Lower-case gas name of the injected column.
+        background_stats: Precomputed background statistics.
+        provider: Unit-absorption provider building a missing target.
+        spec: Radiance-embedding settings of the target spectrum.
+
+    Raises:
+        ContractError: If neither a target nor a provider is given, or if
+            plume masking is requested but the scene carries no injected
+            column.
+    """
+    if target is None:
+        if provider is None:
+            raise ContractError("Retrieval needs a target spectrum or a provider.")
+        spec = spec or EmbeddingSpec(gas=gas)
+        target = target_spectrum(provider, embedded, settings, spec)
+    injected = f"injected_{gas}_mass"
+    if settings.exclude_injected_from_background and "plume_mask" not in embedded:
+        if injected not in embedded:
+            raise ContractError(
+                f"exclude_injected_from_background needs '{injected}' in the scene."
+            )
+        threshold = float(settings.plume_mask_threshold_kg_m2)
+        plume_mask = (embedded[injected] > threshold).assign_attrs(
+            long_name="injected plume excluded from the background statistics",
+            threshold_kg_m2=threshold,
+        )
+        embedded = embedded.assign(plume_mask=plume_mask)
     product = retriever.retrieve(
         embedded, target, settings=settings, background_stats=background_stats
     )
-    injected = f"injected_{gas}_mass"
     if injected in embedded:
         product[injected] = embedded[injected]
     product.attrs.update(
@@ -234,6 +485,7 @@ def retrieve_embedded(
     if injected in embedded:
         product.attrs.update(_provenance(embedded[injected].attrs))
     product.attrs["embedding_method"] = "radiance"
+    product.attrs["spectra_version"] = spectra.__version__
     return product
 
 
@@ -292,6 +544,7 @@ def embed_sample(
     target: xr.Dataset | None = None,
     product: xr.Dataset | None = None,
     window: Window | None = None,
+    extent: EmbeddingExtent = "window",
 ) -> xr.Dataset:
     """Run the full embedding of one snapshot into one scene.
 
@@ -309,10 +562,12 @@ def embed_sample(
         target: Retrieval target spectrum; built with ``provider`` when omitted.
         product: Retrieved column product in sensor space (product method).
         window: Optional explicit embedding window.
+        extent: Retrieve the embedding window or the full embedded scene
+            (radiance method).
 
     Returns:
-        Column product on the embedding window carrying ``injected_*_mass``
-        and the full provenance.
+        Column product on the embedding window (or the full scene) carrying
+        ``injected_*_mass`` and the full provenance.
     """
     spec = spec or EmbeddingSpec()
     injected = place_and_regrid(
@@ -326,27 +581,23 @@ def embed_sample(
     if provider is None or retriever is None:
         raise ContractError("The radiance method needs a provider and a retriever.")
     settings = settings or RetrievalSettings(statistics_scope="window")
-    window_scene, _ = scene_window(scene, injected)
-    # Forward models cover the retrieval windows only; embedding other bands
-    # would be wasted work (and some providers reject bands outside their range).
-    window_scene = select_bands(window_scene, settings.band_windows_nm)
-    lut = build_lut(provider, window_scene, spec)
-    embedded = embed_radiance(window_scene, injected, lut, spec=spec)
-    if target is None:
-        geometry = ViewingGeometry.from_scene(window_scene)
-        target = provider.spectrum(
-            SpectralResponse.from_scene(window_scene),
-            geometry,
-            enhancement_ppm=settings.target_enhancement_ppm,
-            gas=spec.gas.upper(),
-            layer_height_m=spec.layer_height_m,
-            radiance_leg=spec.radiance_leg,
-        )
-    retrieved = retrieve_embedded(
-        embedded, target, retriever=retriever, settings=settings, gas=spec.gas
+    embedded = embed_radiance_sample(
+        scene,
+        injected,
+        provider,
+        spec=spec,
+        band_windows_nm=settings.band_windows_nm,
+        extent=extent,
     )
-    retrieved.attrs["spectra_version"] = spectra.__version__
-    return retrieved
+    return retrieve_embedded(
+        embedded,
+        target,
+        retriever=retriever,
+        settings=settings,
+        gas=spec.gas,
+        provider=provider,
+        spec=spec,
+    )
 
 
 def log_nodes(minimum: float, maximum: float, count: int) -> tuple[float, ...]:
@@ -360,15 +611,21 @@ def log_nodes(minimum: float, maximum: float, count: int) -> tuple[float, ...]:
 
 
 __all__ = [
+    "EMBEDDING_EXTENTS",
+    "EmbeddingExtent",
     "EmbeddingMethod",
     "EmbeddingSpec",
     "build_lut",
     "embed_product",
     "embed_radiance",
+    "embed_radiance_sample",
     "embed_sample",
+    "embedded_scene",
     "log_nodes",
     "place_and_regrid",
+    "provider_bands",
     "retrieve_embedded",
     "scene_window",
     "snapshot_column",
+    "target_spectrum",
 ]

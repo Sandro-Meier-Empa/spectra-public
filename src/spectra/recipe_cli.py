@@ -187,6 +187,11 @@ def cmd_export_prism(args: argparse.Namespace) -> None:
     from spectra.recipe.finalize import PAIRINGS_FILE, finalize
 
     recipe = _load(args.recipe)
+    if recipe.output.exporter != "prism":
+        _fail(
+            f"Recipe writes output.exporter {recipe.output.exporter!r}; "
+            "export-prism needs output.exporter 'prism'."
+        )
     out = _out_dir(args, recipe)
     pairings = out / PAIRINGS_FILE
     if not pairings.exists():

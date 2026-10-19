@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import xarray as xr
 
@@ -70,7 +70,12 @@ class SupportsProduct(Protocol):
 
 @runtime_checkable
 class UnitAbsorptionProvider(Protocol):
-    """Compute unit absorption spectra and absorption tables for a sensor."""
+    """Compute unit absorption spectra and absorption tables for a sensor.
+
+    A provider whose forward model covers a limited wavelength range may
+    expose it as an optional ``spectral_range_nm = (min, max)`` attribute;
+    scene bands outside it are then passed through the embedding unattenuated.
+    """
 
     name: str
 
@@ -103,7 +108,14 @@ class UnitAbsorptionProvider(Protocol):
 
 @runtime_checkable
 class Retriever(Protocol):
-    """Retrieve a column product from a sensor scene."""
+    """Retrieve a column product from a sensor scene.
+
+    The scene is any ``SensorScene`` (an embedded window or full scene of any
+    sensor); the retriever selects the bands it needs with
+    ``settings.band_windows_nm``. Wrappers of external matched filters can
+    convert ppm-m outputs with
+    :func:`spectra.retrievers.convert.matched_filter_to_column_product`.
+    """
 
     name: str
 
@@ -149,7 +161,37 @@ class Regridder(Protocol):
         ...
 
 
+@runtime_checkable
+class Exporter(Protocol):
+    """Shape an embedded sample for a downstream consumer and write it.
+
+    ``needs_retrieval`` tells the generator whether the exporter consumes a
+    retrieved ``ColumnProduct`` (``True``) or the embedded ``SensorScene``
+    (``False``).
+    """
+
+    name: str
+    needs_retrieval: bool
+
+    def prepare(
+        self,
+        sample: xr.Dataset,
+        *,
+        gas: str = "ch4",
+        extra_attrs: Mapping[str, Any] | None = None,
+    ) -> xr.Dataset:
+        """Return the dataset to write, with ``extra_attrs`` merged in."""
+        ...
+
+    def write(
+        self, dataset: xr.Dataset, path: str | Path, *, overwrite: bool = False
+    ) -> Path:
+        """Write a prepared dataset and return its path."""
+        ...
+
+
 __all__ = [
+    "Exporter",
     "Regridder",
     "Retriever",
     "SensorAdapter",

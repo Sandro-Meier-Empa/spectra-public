@@ -28,19 +28,21 @@ from spectra.contracts.column_product import (
 )
 from spectra.contracts.errors import ContractError
 from spectra.export.pairings import pairings_row, scene_uri, write_pairings
-from spectra.export.prism import to_prism_product, write_product
 from spectra.pipeline import (
     EmbeddingSpec,
     build_lut,
     embed_radiance,
     embed_sample,
+    embedded_scene,
     log_nodes,
     place_and_regrid,
     retrieve_embedded,
     scene_window,
     snapshot_column,
+    target_spectrum,
 )
 from spectra.protocols import (
+    Exporter,
     Regridder,
     Retriever,
     SensorAdapter,
@@ -64,6 +66,7 @@ from spectra.recipe.schema import (
     recipe_hash,
 )
 from spectra.registry import (
+    get_exporter,
     get_regridder,
     get_retriever,
     get_sensor,
@@ -74,8 +77,6 @@ from spectra.types import (
     RetrievalSettings,
     SceneGeometry,
     SceneRecord,
-    SpectralResponse,
-    ViewingGeometry,
     Window,
 )
 
@@ -97,13 +98,16 @@ class Plugins:
         regridder: Conservative regridder.
         spec: Radiance-embedding settings (nodes from the recipe LUT spec).
         provider: Unit-absorption provider (radiance method).
-        retriever: Retriever (radiance method).
-        settings: Retrieval settings (radiance method).
+        retriever: Retriever (radiance method with a retrieving exporter).
+        settings: Retrieval settings (radiance method with a retrieving
+            exporter).
+        exporter: Exporter shaping and writing each sample.
     """
 
     adapter: SensorAdapter
     regridder: Regridder
     spec: EmbeddingSpec
+    exporter: Exporter
     provider: UnitAbsorptionProvider | None = None
     retriever: Retriever | None = None
     settings: RetrievalSettings | None = None
@@ -141,23 +145,25 @@ def retrieval_settings(recipe: Recipe) -> RetrievalSettings | None:
 
 
 def build_plugins(recipe: Recipe) -> Plugins:
-    """Instantiate the adapter, regridder, provider and retriever of a recipe."""
+    """Instantiate the adapter, regridder, provider, retriever and exporter."""
     plugins = Plugins(
         adapter=get_sensor(recipe.sensor.name, **recipe.sensor.options),
         regridder=get_regridder(
             recipe.embedding.regridder, **recipe.embedding.regridder_options
         ),
         spec=embedding_spec(recipe),
+        exporter=get_exporter(recipe.output.exporter, **recipe.output.exporter_options),
     )
     if recipe.method == "radiance":
         provider = recipe.embedding.unit_absorption
-        retrieval = recipe.retrieval
-        assert provider is not None and retrieval is not None
+        assert provider is not None
         plugins.provider = get_unit_absorption_provider(
             provider.provider, **provider.options
         )
-        plugins.retriever = get_retriever(retrieval.retriever, **retrieval.options)
-        plugins.settings = retrieval_settings(recipe)
+        retrieval = recipe.retrieval
+        if retrieval is not None:
+            plugins.retriever = get_retriever(retrieval.retriever, **retrieval.options)
+            plugins.settings = retrieval_settings(recipe)
     return plugins
 
 
@@ -380,14 +386,7 @@ def _target(
     return cache._get(
         cache.targets,
         key,
-        lambda: provider.spectrum(
-            SpectralResponse.from_scene(scene),
-            ViewingGeometry.from_scene(scene, window=window),
-            enhancement_ppm=settings.target_enhancement_ppm,
-            gas=spec.gas.upper(),
-            layer_height_m=spec.layer_height_m,
-            radiance_leg=spec.radiance_leg,
-        ),
+        lambda: target_spectrum(provider, scene, settings, spec, window=window),
     )
 
 
@@ -411,17 +410,22 @@ def _embed_radiance_sample(
     column: xr.DataArray,
     placement: Placement,
     window: Window,
+    recipe: Recipe,
     plugins: Plugins,
     cache: RunCache,
 ) -> xr.Dataset:
-    """Radiance method with cached absorption tables and background statistics."""
+    """Radiance method with cached absorption tables and background statistics.
+
+    Returns the retrieved product, or the embedded radiance when the exporter
+    needs no retrieval.
+    """
     provider, retriever, settings, spec = (
         plugins.provider,
         plugins.retriever,
         plugins.settings,
         plugins.spec,
     )
-    assert provider is not None and retriever is not None and settings is not None
+    assert provider is not None
     injected = place_and_regrid(
         scene, column, placement, regridder=plugins.regridder, window=window
     )
@@ -431,6 +435,13 @@ def _embed_radiance_sample(
         cache.luts, key, lambda: build_lut(provider, scene, spec, window=window_obj)
     )
     embedded = embed_radiance(window_scene, injected, lut, spec=spec)
+    if recipe.output.extent == "scene":
+        embedded = embedded_scene(scene, embedded, gas=spec.gas)
+    if not plugins.exporter.needs_retrieval:
+        embedded.attrs["embedding_method"] = "radiance"
+        embedded.attrs["spectra_version"] = spectra.__version__
+        return embedded
+    assert retriever is not None and settings is not None
     product = retrieve_embedded(
         embedded,
         _target(scene, window_obj, plugins, cache),
@@ -452,22 +463,27 @@ def _negative_sample(
     plugins: Plugins,
     cache: RunCache,
 ) -> xr.Dataset:
-    """Plume-free window: the untouched product or the retrieval of the window."""
+    """Plume-free sample: the untouched product, radiance or its retrieval."""
     from spectra.spectral.embedding import embedding_provenance
 
     gas = plugins.spec.gas
+    extent = scene if recipe.output.extent == "scene" else scene.isel(window.indexers)
     if recipe.method == "product":
         product = cache.product(record, plugins.adapter).isel(window.indexers).copy()
+    elif not plugins.exporter.needs_retrieval:
+        product = extent.copy()
     else:
         retriever, settings = plugins.retriever, plugins.settings
         assert retriever is not None and settings is not None
         product = retriever.retrieve(
-            scene.isel(window.indexers),
+            extent,
             _target(scene, window, plugins, cache),
             settings=settings,
             background_stats=_background_stats(scene, plugins, cache),
         )
-    product[f"injected_{gas}_mass"] = _zero_injected(product[f"{gas}_mass"], gas)
+    name = f"{gas}_mass"
+    template = product[name] if name in product else product["valid"]
+    product[f"injected_{gas}_mass"] = _zero_injected(template, gas)
     product.attrs.update(
         embedding_provenance(
             recipe.method,  # type: ignore[arg-type]
@@ -603,7 +619,7 @@ def generate_sample(
     cache: RunCache | None = None,
     overwrite: bool = False,
 ) -> GeneratedSample:
-    """Embed one sample and write its prism product.
+    """Embed one sample and write it with the recipe's exporter.
 
     Args:
         params: Sample parameters (one row of ``params.parquet``).
@@ -645,9 +661,12 @@ def generate_sample(
             )
         else:
             product = _embed_radiance_sample(
-                scene, column, placement, window, plugins, cache
+                scene, column, placement, window, recipe, plugins, cache
             )
         source_y, source_x = injected_source_pixel(plume, placement, geometry, window)
+        if recipe.output.extent == "scene":
+            source_y += int(window.across.start)
+            source_x += int(window.along.start)
         product.attrs["injected_source_y"] = source_y
         product.attrs["injected_source_x"] = source_x
 
@@ -656,7 +675,7 @@ def generate_sample(
         from spectra.plume.augment import transform_wind
 
         u, v = transform_wind(wind[0], wind[1], placement)
-        template = product[f"{gas}_mass"]
+        template = product[f"injected_{gas}_mass"]
         for name, value, long_name in (
             ("wind_u", u, "eastward wind of the placed plume"),
             ("wind_v", v, "northward wind of the placed plume"),
@@ -668,12 +687,10 @@ def generate_sample(
     pixel_size = _pixel_size_m(product, scene, window)
     if math.isfinite(pixel_size) and pixel_size > 0:
         attrs["pixel_size_m"] = pixel_size
-    prism_product = to_prism_product(product, gas=gas, extra_attrs=attrs)
+    prepared = plugins.exporter.prepare(product, gas=gas, extra_attrs=attrs)
     path = sample_path(recipe, params.sample_id)
-    write_product(prism_product, path, overwrite=overwrite)
-    return GeneratedSample(
-        path=path, row=pairings_row(prism_product, params, recipe, path)
-    )
+    plugins.exporter.write(prepared, path, overwrite=overwrite)
+    return GeneratedSample(path=path, row=pairings_row(prepared, params, recipe, path))
 
 
 # -- run ------------------------------------------------------------------------
