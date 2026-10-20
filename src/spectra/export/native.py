@@ -247,6 +247,10 @@ def _patch_cluster(
             block["along"].start - window.along.start,
             block["along"].stop - window.along.start,
         )
+        bands = slice(
+            block["band"].start - cluster.bands.start,
+            block["band"].stop - cluster.bands.start,
+        )
         column = cluster.column[across, along]
         plume = column > 0
         if not plume.any():
@@ -260,7 +264,7 @@ def _patch_cluster(
         radiance = xr.DataArray(
             view,
             dims=COMMON_ORDER,
-            coords={"wavelength": ("band", wavelength)},
+            coords={"wavelength": ("band", wavelength[bands])},
         )
         attenuated = embed_column_in_radiance(
             radiance,

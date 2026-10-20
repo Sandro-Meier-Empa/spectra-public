@@ -12,6 +12,7 @@ import xarray as xr
 from conftest import native_files
 
 import spectra
+import spectra.export.native as native_export
 from spectra.contracts.errors import ContractError
 from spectra.geometry.crs import crs_from_dataset, to_lonlat
 from spectra.plume.io import write_plume_column
@@ -125,7 +126,14 @@ def test_aviris3_rejects_inconsistent_files(
         adapter.open_scene(embedded)
 
 
-def test_aviris3_embed_writes_native_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("block_bytes", [None, 1], ids=["one-block", "band-blocks"])
+def test_aviris3_embed_writes_native_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, block_bytes: int | None
+) -> None:
+    if block_bytes is not None:
+        # Band-major radiance is patched in blocks of bands once a plume window
+        # is large; tiny blocks force that split on the small synthetic granule.
+        monkeypatch.setattr(native_export, "_BLOCK_BYTES", block_bytes)
     files = write_aviris3_files(
         tmp_path / "in", n_lines=40, n_samples=30, fill_pixels=[(11, 10)]
     )
