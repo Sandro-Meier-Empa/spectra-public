@@ -9,8 +9,9 @@ user lists by role; adapters never look for files themselves.
 
 from __future__ import annotations
 
+import datetime
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,8 @@ import xarray as xr
 from spectra.contracts.errors import ContractError
 from spectra.contracts.sensor_scene import SENSOR_DIMS
 from spectra.types import NativeLayout
+
+_COVERAGE_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 
 def resolve_files(
@@ -149,4 +152,48 @@ def open_native_radiance(
     return radiance.transpose(*SENSOR_DIMS)
 
 
-__all__ = ["aligned_chunks", "open_native_radiance", "resolve_files", "split_variable"]
+def to_scene_dims(variable: xr.DataArray, layout: NativeLayout) -> xr.DataArray:
+    """Rename native spatial dimensions through ``layout`` and order them.
+
+    Returns:
+        The variable on ``(across, along, ...)``.
+    """
+    renames = {
+        dim: layout.dims[str(dim)] for dim in variable.dims if dim in layout.dims
+    }
+    return variable.rename(renames).transpose("across", "along", ...)
+
+
+def global_attrs(path: Path, keys: Iterable[str]) -> dict[str, str]:
+    """Return root-group attributes of a file as strings, empty when missing."""
+    with xr.open_dataset(path) as dataset:
+        return {key: str(dataset.attrs.get(key, "")) for key in keys}
+
+
+def coverage_start(value: str, path: Path) -> np.datetime64:
+    """Return a ``time_coverage_start`` attribute as a naive UTC datetime64.
+
+    Both the ``Z`` and the ``+0000`` suffix of NASA L1B granules are accepted.
+
+    Raises:
+        ContractError: If the value does not parse.
+    """
+    try:
+        stamp = datetime.datetime.strptime(value, _COVERAGE_TIME_FORMAT)
+    except ValueError as error:
+        raise ContractError(
+            f"{path} has no parsable time_coverage_start ({value!r})."
+        ) from error
+    naive = stamp.astimezone(datetime.UTC).replace(tzinfo=None)
+    return np.datetime64(naive, "ns")
+
+
+__all__ = [
+    "aligned_chunks",
+    "coverage_start",
+    "global_attrs",
+    "open_native_radiance",
+    "resolve_files",
+    "split_variable",
+    "to_scene_dims",
+]

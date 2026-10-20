@@ -16,7 +16,6 @@ UTM zone of the granule centre. Nothing is derived from file names.
 
 from __future__ import annotations
 
-import datetime
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -29,7 +28,13 @@ from spectra.contracts.embedded import check_not_embedded
 from spectra.contracts.errors import ContractError
 from spectra.geometry.area import pixel_area_from_centres
 from spectra.geometry.crs import from_lonlat, spatial_ref_coordinate, utm_crs
-from spectra.sensors.native import open_native_radiance, resolve_files
+from spectra.sensors.native import (
+    coverage_start,
+    global_attrs,
+    open_native_radiance,
+    resolve_files,
+    to_scene_dims,
+)
 from spectra.types import NativeLayout, Platform
 
 ROLES: dict[str, bool] = {"radiance": True, "obs": True}
@@ -48,34 +53,8 @@ OBS_BANDS: dict[str, tuple[int, str]] = {
     "saa": (3, "To-sun azimuth"),
     "sza": (4, "To-sun zenith"),
 }
-_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
-
-
-def _granule_attrs(path: Path) -> dict[str, str]:
-    with xr.open_dataset(path) as dataset:
-        return {
-            key: str(dataset.attrs.get(key, ""))
-            for key in ("flight_line", "time_coverage_start")
-        }
-
-
-def _acquisition_time(value: str, path: Path) -> np.datetime64:
-    """Return ``time_coverage_start`` as a naive UTC datetime64."""
-    try:
-        stamp = datetime.datetime.strptime(value, _TIME_FORMAT)
-    except ValueError as error:
-        raise ContractError(
-            f"{path} has no parsable time_coverage_start ({value!r})."
-        ) from error
-    naive = stamp.astimezone(datetime.UTC).replace(tzinfo=None)
-    return np.datetime64(naive, "ns")
-
-
-def _to_scene_dims(variable: xr.DataArray) -> xr.DataArray:
-    """Rename ``(downtrack, crosstrack)`` to ``(along, across)`` and transpose."""
-    return variable.rename({"downtrack": "along", "crosstrack": "across"}).transpose(
-        "across", "along", ...
-    )
+# Global attributes the RAD and OBS granules of one scene share.
+GRANULE_ATTRS = ("flight_line", "time_coverage_start")
 
 
 class EmitAdapter:
@@ -112,23 +91,23 @@ class EmitAdapter:
         radiance = open_native_radiance(
             paths["radiance"], self.LAYOUT, chunks=dict(chunks or self.chunks)
         )
-        attrs = _granule_attrs(paths["radiance"])
-        obs_attrs = _granule_attrs(paths["obs"])
+        attrs = global_attrs(paths["radiance"], GRANULE_ATTRS)
+        obs_attrs = global_attrs(paths["obs"], GRANULE_ATTRS)
         if attrs != obs_attrs:
             raise ContractError(
                 f"{paths['obs']} is not the OBS granule of {paths['radiance']}: "
                 f"{obs_attrs} differ from {attrs}."
             )
-        time = _acquisition_time(attrs["time_coverage_start"], paths["radiance"])
+        time = coverage_start(attrs["time_coverage_start"], paths["radiance"])
         with xr.open_dataset(
             paths["radiance"], group="sensor_band_parameters"
         ) as bands:
             wavelength = np.asarray(bands["wavelengths"].values)
             fwhm = np.asarray(bands["fwhm"].values)
         with xr.open_dataset(paths["radiance"], group="location") as location:
-            lon = _to_scene_dims(location["lon"]).load()
-            lat = _to_scene_dims(location["lat"]).load()
-            elevation = _to_scene_dims(location["elev"]).load()
+            lon = to_scene_dims(location["lon"], self.LAYOUT).load()
+            lat = to_scene_dims(location["lat"], self.LAYOUT).load()
+            elevation = to_scene_dims(location["elev"], self.LAYOUT).load()
         with xr.open_dataset(paths["obs"], group="sensor_band_parameters") as names:
             band_names = [str(name) for name in names["observation_bands"].values]
         for key, (index, prefix) in OBS_BANDS.items():
@@ -150,7 +129,7 @@ class EmitAdapter:
                 f"{paths['obs']} and {paths['radiance']} differ in size."
             )
         angles = {
-            key: _to_scene_dims(obs.isel(bands=position, drop=True))
+            key: to_scene_dims(obs.isel(bands=position, drop=True), self.LAYOUT)
             for position, key in enumerate(OBS_BANDS)
         }
 
@@ -214,4 +193,11 @@ class EmitAdapter:
         return scene.unify_chunks()
 
 
-__all__ = ["DEFAULT_CHUNKS", "LAYOUT", "OBS_BANDS", "ROLES", "EmitAdapter"]
+__all__ = [
+    "DEFAULT_CHUNKS",
+    "GRANULE_ATTRS",
+    "LAYOUT",
+    "OBS_BANDS",
+    "ROLES",
+    "EmitAdapter",
+]

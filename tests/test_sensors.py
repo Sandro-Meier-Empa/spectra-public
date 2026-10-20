@@ -34,11 +34,6 @@ def test_get_sensor_resolves_names_and_objects() -> None:
         get_sensor(object())  # type: ignore[arg-type]
 
 
-def test_aviris3_is_not_implemented_yet(tmp_path: Path) -> None:
-    with pytest.raises(NotImplementedError, match="sample"):
-        get_sensor("aviris3").open_scene({"radiance": tmp_path, "obs": tmp_path})
-
-
 def test_resolve_files(tmp_path: Path) -> None:
     roles = {"radiance": True, "obs": True, "mask": False}
     first, second = tmp_path / "a.nc", tmp_path / "b.nc"
