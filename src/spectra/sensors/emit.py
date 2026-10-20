@@ -136,9 +136,12 @@ class EmitAdapter:
                 raise ContractError(
                     f"OBS band {index} of {paths['obs']} is not {prefix!r} ({key})."
                 )
-        obs = xr.open_dataset(
-            paths["obs"], chunks={"downtrack": DEFAULT_CHUNKS["along"]}
-        )["obs"]
+        # The OBS granule is small; its bands are read eagerly and the file is
+        # closed. Keeping it open lazily while it is opened again crashes HDF5
+        # 1.14 on the string fill value of observation_bands.
+        bands_needed = [index for index, _ in OBS_BANDS.values()]
+        with xr.open_dataset(paths["obs"]) as observations:
+            obs = observations["obs"].isel(bands=bands_needed).load()
         if (obs.sizes["downtrack"], obs.sizes["crosstrack"]) != (
             radiance.sizes["along"],
             radiance.sizes["across"],
@@ -147,8 +150,8 @@ class EmitAdapter:
                 f"{paths['obs']} and {paths['radiance']} differ in size."
             )
         angles = {
-            key: _to_scene_dims(obs.isel(bands=index, drop=True))
-            for key, (index, _) in OBS_BANDS.items()
+            key: _to_scene_dims(obs.isel(bands=position, drop=True))
+            for position, key in enumerate(OBS_BANDS)
         }
 
         valid_location = np.isfinite(lon.values) & np.isfinite(lat.values)

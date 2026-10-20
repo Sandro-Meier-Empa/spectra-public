@@ -186,7 +186,10 @@ def test_lonlat_anchor_places_the_source(tmp_path: Path) -> None:
     assert (source.lon, source.lat) == pytest.approx((lon, lat), abs=1e-9)
     with xr.open_dataset(outcome.output) as dataset:
         assert float(dataset["source_lon"][0]) == pytest.approx(lon, abs=1e-9)
-        assert str(dataset["source_anchor_mode"].values[0]) == "lonlat"
+        assert int(dataset["source_anchor_mode"].values[0]) == 0
+        assert dataset["source_anchor_mode"].attrs["flag_meanings"].split()[0] == (
+            "lonlat"
+        )
 
 
 def test_embed_errors(tmp_path: Path) -> None:

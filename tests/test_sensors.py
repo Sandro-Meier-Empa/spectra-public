@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -172,3 +174,73 @@ def test_real_scene_conformance(sensor: str) -> None:
     files = native_files(sensor)
     scene = run_adapter_conformance(get_sensor(sensor), files, n_pixels=8)
     assert scene.sizes["band"] > 200
+
+
+SCENE_TWICE = """
+import sys
+from pathlib import Path
+import xarray as xr
+from spectra.sensors import EmitAdapter
+files = {"radiance": Path(sys.argv[1]), "obs": Path(sys.argv[2])}
+first = EmitAdapter().open_scene(files)
+second = EmitAdapter().open_scene(files)
+with xr.open_dataset(files["obs"]) as obs:
+    obs["obs"].isel(bands=0).values
+print(float(first["sza"].mean()), float(second["sza"].mean()))
+"""
+
+
+def _open_scene_twice(files: dict[str, Path]) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c", SCENE_TWICE, str(files["radiance"]), str(files["obs"])],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_emit_scene_reopens_obs(tmp_path: Path) -> None:
+    # The OBS band names are variable-length strings with a string fill value;
+    # keeping a real granule open while it is reopened crashes HDF5 1.14, so
+    # the adapter reads the OBS bands eagerly. The crash only reproduces on
+    # real granules (test_real_emit_scene_then_embed).
+    _open_scene_twice(write_emit_files(tmp_path))
+
+
+SCENE_THEN_EMBED = """
+import sys
+from pathlib import Path
+import spectra
+from spectra.plume.io import write_plume_column
+from spectra.sensors import EmitAdapter
+from spectra.testing import make_plume_column
+files = {"radiance": sys.argv[1], "obs": sys.argv[2]}
+out = Path(sys.argv[3])
+plume = out.parent / "plume.nc"
+write_plume_column(make_plume_column(nx=24, ny=24, dx=20.0, n_time=1), plume)
+scene = EmitAdapter().open_scene({k: Path(v) for k, v in files.items()})
+spectra.embed({
+    "sensor": "emit", "files": files, "output": str(out), "seed": 1,
+    "forward_model": {"model": "toy"},
+    "plumes": [{"file": str(plume), "time_index": 0, "anchor": "random"}],
+})
+"""
+
+
+@pytest.mark.data
+def test_real_emit_scene_then_embed(tmp_path: Path) -> None:
+    # Reproduces the HDF5 crash of a lazily opened OBS granule on real data.
+    files = native_files("emit")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            SCENE_THEN_EMBED,
+            str(files["radiance"]),
+            str(files["obs"]),
+            str(tmp_path / "out.nc"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr[-2000:]

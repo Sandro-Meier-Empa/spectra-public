@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
+import sys
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -56,6 +58,7 @@ WRITERS: dict[str, tuple[Callable[..., dict[str, Path]], NativeLayout]] = {
 }
 NEW_OBJECTS = (
     "source",
+    "source_strlen",
     "injected_ch4_mass",
     *SOURCE_VARIABLES,
     "source_across",
@@ -269,7 +272,8 @@ def test_export_writes_metadata_schema(case, tmp_path: Path) -> None:
         assert list(ds["source_plume_file"][:]) == [
             f"/path/to/plume_{i}.nc" for i in range(3)
         ]
-        assert list(ds["source_anchor_mode"][:]) == ["lonlat", "pixel", "random"]
+        np.testing.assert_array_equal(ds["source_anchor_mode"][:], [0, 1, 2])
+        assert ds["source_anchor_mode"].flag_meanings == "lonlat pixel random"
         np.testing.assert_array_equal(ds["source_flip"][:], [0, 1, 2])
         assert ds["source_flip"].flag_meanings == "none x y"
         np.testing.assert_array_equal(ds["source_cluster"][:], [0, 0, 1])
@@ -370,3 +374,28 @@ def test_export_rejects_results_outside_the_scene(tmp_path: Path) -> None:
     result = make_result(files, AVIRIS4)
     with pytest.raises(ContractError, match="outside the scene"):
         write_native(AVIRIS4, files, tmp_path / "out.nc", result)
+
+
+REOPEN = """
+import sys, netCDF4, xarray as xr
+path = sys.argv[1]
+keep = xr.open_dataset(path, chunks={})
+keep["source_plume_file"].values
+for _ in range(3):
+    with xr.open_dataset(path) as again:
+        assert list(again["source_plume_file"].values)
+    netCDF4.Dataset(path).close()
+"""
+
+
+def test_output_reopens_while_open(tmp_path: Path) -> None:
+    # Variable-length strings would carry a variable-length fill value that
+    # crashes HDF5 1.14 when the file is reopened while a handle is open.
+    files = write_emit_files(tmp_path / "in")
+    output = write_native(EMIT, files, tmp_path / "out.nc", make_result(files, EMIT))
+    with netCDF4.Dataset(output) as ds:
+        assert ds["source_plume_file"].dtype == np.dtype("S1")
+    completed = subprocess.run(
+        [sys.executable, "-c", REOPEN, str(output)], capture_output=True, text=True
+    )
+    assert completed.returncode == 0, completed.stderr

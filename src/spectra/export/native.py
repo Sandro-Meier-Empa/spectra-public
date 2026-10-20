@@ -30,10 +30,12 @@ import xarray as xr
 
 import spectra
 from spectra.contracts.embedded import (
+    ANCHOR_MODE_CODES,
     FLIP_CODES,
     RUN_CONFIG_ATTR,
     SOURCE_DIM,
     SOURCE_VARIABLES,
+    STRING_DIM,
     anchor_variable,
     check_not_embedded,
 )
@@ -306,7 +308,9 @@ def _write_metadata(
     values: dict[str, Sequence[Any]] = {
         "source_plume_file": [plume.plume_file for plume in result.sources],
         "source_case_id": [plume.case_id for plume in result.sources],
-        "source_anchor_mode": [plume.anchor_mode for plume in result.sources],
+        "source_anchor_mode": [
+            ANCHOR_MODE_CODES[plume.anchor_mode] for plume in result.sources
+        ],
         "source_time_index": [plume.time_index for plume in result.sources],
         "source_emission_rate": [plume.emission_rate_kg_s for plume in result.sources],
         "source_emission_scale": [plume.emission_scale for plume in result.sources],
@@ -328,14 +332,25 @@ def _write_metadata(
             clusters[plume.cluster].model_surface_elevation for plume in result.sources
         ],
     }
+    strings = [
+        str(value).encode()
+        for name, (dtype, _, _) in SOURCE_VARIABLES.items()
+        if dtype == "S1"
+        for value in values[name]
+    ]
+    dataset.createDimension(STRING_DIM, max([1, *map(len, strings)]))
     for name, (dtype, units, long_name) in SOURCE_VARIABLES.items():
         _write_source_variable(dataset, name, dtype, values[name], units, long_name)
-    dataset.variables["source_flip"].flag_values = np.array(
-        sorted(FLIP_CODES.values()), dtype="i1"
-    )
-    dataset.variables["source_flip"].flag_meanings = " ".join(
-        sorted(FLIP_CODES, key=FLIP_CODES.__getitem__)
-    )
+    for name, codes in (
+        ("source_flip", FLIP_CODES),
+        ("source_anchor_mode", ANCHOR_MODE_CODES),
+    ):
+        dataset.variables[name].flag_values = np.array(
+            sorted(codes.values()), dtype="i1"
+        )
+        dataset.variables[name].flag_meanings = " ".join(
+            sorted(codes, key=codes.__getitem__)
+        )
     for dim in spatial:
         common = layout.dims[dim]
         _write_source_variable(
@@ -408,16 +423,18 @@ def _write_field(
 def _write_source_variable(
     dataset: netCDF4.Dataset,
     name: str,
-    dtype: str | type,
+    dtype: str,
     values: Sequence[Any],
     units: str | None,
     long_name: str,
 ) -> None:
-    variable = dataset.createVariable(name, dtype, (SOURCE_DIM,))
-    if dtype is str:
-        for index, value in enumerate(values):
-            variable[index] = str(value)
+    if dtype == "S1":
+        width = len(dataset.dimensions[STRING_DIM])
+        variable = dataset.createVariable(name, "S1", (SOURCE_DIM, STRING_DIM))
+        variable._Encoding = "utf-8"
+        variable[:] = np.array([str(value) for value in values], dtype=f"U{width}")
     else:
+        variable = dataset.createVariable(name, dtype, (SOURCE_DIM,))
         variable[:] = np.asarray(values, dtype=dtype)
     variable.long_name = long_name
     if units is not None:

@@ -35,7 +35,13 @@ CASES = {
     "emit-010635": (partial(write_emit_files, build="010635"), EMIT_DIMS),
     "emit-010617": (partial(write_emit_files, build="010617"), EMIT_DIMS),
 }
-NEW_OBJECTS = ("source", "injected_ch4_mass", "source_plume_file", "source_flip")
+NEW_OBJECTS = (
+    "source",
+    "source_strlen",
+    "injected_ch4_mass",
+    "source_plume_file",
+    "source_flip",
+)
 NEW_ATTRS = ("spectra_version", "spectra_seed", "spectra_run_config")
 
 
@@ -71,9 +77,12 @@ def test_rplus_patch_keeps_native_storage(tmp_path: Path, case: str) -> None:
             chunksizes=(1, 8, 8),
         )
         field[:] = np.zeros(field.shape, dtype=np.float32)
-        files_variable = ds.createVariable("source_plume_file", str, ("source",))
-        files_variable[0] = "/path/to/a.nc"
-        files_variable[1] = "/path/to/b.nc"
+        ds.createDimension("source_strlen", 13)
+        files_variable = ds.createVariable(
+            "source_plume_file", "S1", ("source", "source_strlen")
+        )
+        files_variable._Encoding = "utf-8"
+        files_variable[:] = np.array(["/path/to/a.nc", "/path/to/b.nc"], dtype="U13")
         flips = ds.createVariable("source_flip", "i1", ("source",))
         flips[:] = [0, 1]
         ds.setncattr("spectra_version", "0.2.0")

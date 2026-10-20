@@ -24,15 +24,19 @@ import netCDF4
 from spectra.contracts.errors import ContractError
 
 SOURCE_DIM = "source"
+# Strings are fixed-width character arrays: netCDF variable-length strings carry
+# a variable-length fill value that crashes HDF5 1.14 when a file is reopened
+# while another handle is open.
+STRING_DIM = "source_strlen"
 ATTR_PREFIX = "spectra_"
 RUN_CONFIG_ATTR = "spectra_run_config"
 
 # Per-plume variables on (source,): name -> (dtype, units, long name). The
 # anchor-pixel variables are named after the native spatial dimensions.
-SOURCE_VARIABLES: dict[str, tuple[str | type, str | None, str]] = {
-    "source_plume_file": (str, None, "plume-column file"),
-    "source_case_id": (str, None, "LES case identifier"),
-    "source_anchor_mode": (str, None, "anchor given as lonlat, pixel or random"),
+SOURCE_VARIABLES: dict[str, tuple[str, str | None, str]] = {
+    "source_plume_file": ("S1", None, "plume-column file"),
+    "source_case_id": ("S1", None, "LES case identifier"),
+    "source_anchor_mode": ("i1", None, "how the anchor was given"),
     "source_time_index": ("i4", None, "LES time index of the snapshot"),
     "source_emission_rate": ("f8", "kg s-1", "emission rate after scaling"),
     "source_emission_scale": ("f8", "1", "emission scale factor"),
@@ -57,6 +61,7 @@ SOURCE_VARIABLES: dict[str, tuple[str | type, str | None, str]] = {
     ),
 }
 FLIP_CODES = {"none": 0, "x": 1, "y": 2}
+ANCHOR_MODE_CODES = {"lonlat": 0, "pixel": 1, "random": 2}
 
 
 def injected_name(gas: str) -> str:
@@ -108,11 +113,13 @@ def check_not_embedded(path: str | Path) -> None:
 
 
 __all__ = [
+    "ANCHOR_MODE_CODES",
     "ATTR_PREFIX",
     "FLIP_CODES",
     "RUN_CONFIG_ATTR",
     "SOURCE_DIM",
     "SOURCE_VARIABLES",
+    "STRING_DIM",
     "anchor_variable",
     "check_not_embedded",
     "injected_name",
