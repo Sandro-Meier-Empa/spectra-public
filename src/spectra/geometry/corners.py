@@ -11,10 +11,14 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 import shapely
-from shapely.geometry import Polygon
+from shapely.geometry import MultiPolygon, Polygon
 
 from spectra.contracts.errors import ContractError
 from spectra.types import Window
+
+# Outline of a grid; a MultiPolygon when folded edge pixels make the boundary
+# ring cross itself.
+Outline = Polygon | MultiPolygon
 
 
 def require_finite(*arrays: npt.ArrayLike) -> None:
@@ -114,15 +118,36 @@ def outline_from_nodes(nodes: npt.ArrayLike) -> np.ndarray:
     return np.concatenate((top, right[1:], bottom[-2::-1], left[-2:0:-1]))
 
 
-def outline_polygon(nodes_x: npt.ArrayLike, nodes_y: npt.ArrayLike) -> Polygon:
-    """Return the outer boundary polygon of a grid given its node coordinates."""
-    outline_x = outline_from_nodes(nodes_x)
-    outline_y = outline_from_nodes(nodes_y)
+def ring_outline(outline_x: npt.ArrayLike, outline_y: npt.ArrayLike) -> Outline:
+    """Return the region enclosed by a closed boundary ring of grid nodes.
+
+    Georeferenced swaths can fold at their edges (pixels displaced backwards
+    along track by aircraft roll), so the boundary ring may cross itself; the
+    enclosed region is then repaired into its polygonal parts instead of
+    rejected.
+
+    Raises:
+        ContractError: If the ring is not finite or encloses no area.
+    """
     require_finite(outline_x, outline_y)
-    polygon = Polygon(zip(outline_x, outline_y, strict=True))
-    if polygon.is_empty or not polygon.is_valid or polygon.area <= 0:
-        raise ContractError("Grid nodes form an invalid outline polygon.")
+    polygon = Polygon(zip(np.asarray(outline_x), np.asarray(outline_y), strict=True))
+    if not polygon.is_valid:
+        repaired = shapely.make_valid(polygon)
+        parts = [
+            part
+            for part in getattr(repaired, "geoms", [repaired])
+            if isinstance(part, (Polygon, MultiPolygon))
+        ]
+        merged = shapely.union_all(parts) if parts else Polygon()
+        polygon = merged if isinstance(merged, (Polygon, MultiPolygon)) else Polygon()
+    if polygon.is_empty or polygon.area <= 0:
+        raise ContractError("Grid nodes enclose no area.")
     return polygon
+
+
+def outline_polygon(nodes_x: npt.ArrayLike, nodes_y: npt.ArrayLike) -> Outline:
+    """Return the region enclosed by the outer boundary of a grid's nodes."""
+    return ring_outline(outline_from_nodes(nodes_x), outline_from_nodes(nodes_y))
 
 
 def cell_areas(vertices_x: npt.ArrayLike, vertices_y: npt.ArrayLike) -> np.ndarray:
@@ -145,6 +170,7 @@ def cell_polygons(vertices_x: npt.ArrayLike, vertices_y: npt.ArrayLike) -> np.nd
 
 
 __all__ = [
+    "Outline",
     "axis_nodes",
     "cell_areas",
     "cell_corner_nodes",
@@ -154,5 +180,6 @@ __all__ = [
     "outline_from_nodes",
     "outline_polygon",
     "require_finite",
+    "ring_outline",
     "window_corner_nodes",
 ]

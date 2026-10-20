@@ -21,12 +21,12 @@ from typing import Any, cast
 import numpy as np
 import pyproj
 import xarray as xr
-from shapely.geometry import Polygon
 
 from spectra.contracts.errors import ContractError
 from spectra.contracts.plume_column import scale_emission, select_time
 from spectra.contracts.units import CANONICAL_COLUMN_UNITS, convert_column_units
 from spectra.geometry.amf import effective_layer_height
+from spectra.geometry.corners import Outline
 from spectra.geometry.crs import to_lonlat
 from spectra.geometry.placement import anchor_source_point
 from spectra.geometry.swath import ResolvedAnchor, resolve_anchor, swath_polygon
@@ -86,7 +86,7 @@ def resolve_plumes(
     seed: int,
     datasets: Mapping[Path, xr.Dataset] | None = None,
     geometry: SceneGeometry | None = None,
-    swath: Polygon | None = None,
+    swath: Outline | None = None,
 ) -> list[ResolvedAnchor]:
     """Resolve the anchor of every plume, drawing random anchors reproducibly.
 

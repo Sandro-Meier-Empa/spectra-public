@@ -7,6 +7,7 @@ import functools
 import numpy as np
 import pyproj
 import pytest
+import shapely
 import xarray as xr
 from shapely.geometry import Polygon
 
@@ -86,13 +87,16 @@ def test_swath_polygon_matches_full_node_outline(geometry: SceneGeometry) -> Non
     full = Window(across=slice(0, n_across), along=slice(0, n_along))
     expected = outline_polygon(*window_nodes(geometry, full))
     swath = swath_polygon(geometry)
+    window = window_polygon(geometry, full)
+    # The golden swath does not fold, so all outlines are single polygons.
+    assert isinstance(expected, Polygon) and isinstance(swath, Polygon)
+    assert isinstance(window, Polygon)
     assert np.array_equal(
         np.asarray(swath.exterior.coords), np.asarray(expected.exterior.coords)
     )
     assert swath.is_valid and swath.area > 0
     assert np.array_equal(
-        np.asarray(window_polygon(geometry, full).exterior.coords),
-        np.asarray(expected.exterior.coords),
+        np.asarray(window.exterior.coords), np.asarray(expected.exterior.coords)
     )
 
 
@@ -406,3 +410,30 @@ def test_source_anchor_pins_emission_point() -> None:
             anchor_target_xy=(0.0, 0.0),
             placement=placement,
         )
+
+
+def test_folded_swath_edge_is_repaired() -> None:
+    # Edge pixels displaced backwards along track (aircraft roll) make the
+    # boundary ring cross itself; the swath is the repaired enclosed region.
+    along_x, across_y = np.meshgrid(np.arange(30.0), np.arange(10.0), indexing="xy")
+    along_x[0, 12:15] -= 4.5
+    geometry = SceneGeometry(
+        x=xr.DataArray(along_x, dims=("across", "along")),
+        y=xr.DataArray(across_y, dims=("across", "along")),
+        crs=pyproj.CRS.from_epsg(32632),
+    )
+    swath = swath_polygon(geometry)
+    assert swath.is_valid and swath.area > 0
+    inner = shapely.points(along_x[1:].ravel(), across_y[1:].ravel())
+    assert bool(np.all(shapely.covers(swath, inner)))
+    values = np.ones((2, 3))
+    column = xr.DataArray(
+        values,
+        dims=("y", "x"),
+        coords={"x": np.arange(3.0), "y": np.arange(2.0)},
+        attrs={"units": "kg m-2"},
+    )
+    anchor = resolve_anchor(
+        column, geometry, mode="pixel", along=20, across=5, corner="lower left"
+    )
+    assert anchor.outside_fraction == 0.0

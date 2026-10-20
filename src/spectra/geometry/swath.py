@@ -22,9 +22,10 @@ from shapely.geometry import Point, Polygon
 
 from spectra.contracts.errors import ContractError
 from spectra.geometry.corners import (
+    Outline,
     axis_nodes,
     outline_polygon,
-    require_finite,
+    ring_outline,
     window_corner_nodes,
 )
 from spectra.geometry.crs import from_lonlat
@@ -175,15 +176,11 @@ def _ring(
     return np.concatenate((top, right[1:], bottom[-2::-1], left[-2:0:-1]))
 
 
-def swath_polygon(geometry: SceneGeometry) -> Polygon:
-    """Return the polygon following the outer pixel boundaries of a scene."""
-    outline_x = _ring(*_boundary_nodes(geometry.x))
-    outline_y = _ring(*_boundary_nodes(geometry.y))
-    require_finite(outline_x, outline_y)
-    polygon = Polygon(zip(outline_x, outline_y, strict=True))
-    if polygon.is_empty or not polygon.is_valid or polygon.area <= 0:
-        raise ContractError("Pixel boundary forms an invalid swath polygon.")
-    return polygon
+def swath_polygon(geometry: SceneGeometry) -> Outline:
+    """Return the region enclosed by the outer pixel boundaries of a scene."""
+    return ring_outline(
+        _ring(*_boundary_nodes(geometry.x)), _ring(*_boundary_nodes(geometry.y))
+    )
 
 
 def window_nodes(
@@ -209,7 +206,7 @@ def window_nodes(
     )
 
 
-def window_polygon(geometry: SceneGeometry, window: Window) -> Polygon:
+def window_polygon(geometry: SceneGeometry, window: Window) -> Outline:
     """Return the outer pixel-boundary polygon of an index window."""
     node_x, node_y = window_nodes(geometry, window)
     return outline_polygon(node_x, node_y)
@@ -313,7 +310,7 @@ def candidate_region(
 
 
 def outside_mass_fraction(
-    region: Polygon,
+    region: Outline,
     support_rel: npt.NDArray[np.floating[Any]],
     centre: tuple[float, float],
     points: MassPoints,
@@ -401,7 +398,7 @@ def _validate_max_attempts(value: int) -> int:
 
 def explicit_anchor(
     geometry: SceneGeometry,
-    swath: Polygon,
+    swath: Outline,
     points: MassPoints,
     support_rel: npt.NDArray[np.floating[Any]],
     *,
@@ -429,7 +426,7 @@ def explicit_anchor(
 
 def random_anchor(
     geometry: SceneGeometry,
-    swath: Polygon,
+    swath: Outline,
     points: MassPoints,
     support_rel: npt.NDArray[np.floating[Any]],
     *,
@@ -515,7 +512,7 @@ def resolve_anchor(
     geometry: SceneGeometry,
     *,
     mode: AnchorMode,
-    swath: Polygon | None = None,
+    swath: Outline | None = None,
     corner: AnchorPoint = "source",
     rotation_deg: int = 0,
     flip: Flip = "none",
