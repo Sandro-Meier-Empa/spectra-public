@@ -160,6 +160,56 @@ class EmbedResult:
         """Name of the injected-column variable."""
         return f"injected_{self.gas.lower()}_mass"
 
+    def to_dataset(self, scene: xr.Dataset) -> xr.Dataset:
+        """Return the embedded scene in memory, for notebooks and small scenes.
+
+        The radiance is loaded and attenuated exactly as the native exporter
+        does it; the per-plume injected columns are added on ``source``.
+
+        Args:
+            scene: The ``SensorScene`` the result was computed for.
+
+        Returns:
+            Copy of ``scene`` with attenuated radiance and
+            ``injected_<gas>_mass(source, across, along)``.
+        """
+        from spectra.spectral.embedding import embed_column_in_radiance
+
+        radiance = scene["radiance"].transpose("across", "along", "band")
+        values = np.array(radiance.values)
+        for cluster in self.clusters:
+            window = cluster.window
+            block = values[window.across, window.along, cluster.bands]
+            attenuated = embed_column_in_radiance(
+                xr.DataArray(
+                    block,
+                    dims=("across", "along", "band"),
+                    coords={"wavelength": ("band", cluster.lut["wavelength"].values)},
+                ),
+                xr.DataArray(
+                    cluster.column, dims=("across", "along"), attrs={"units": "kg m-2"}
+                ),
+                cluster.lut,
+                gas=self.gas.lower(),
+            ).values
+            patch = (cluster.column > 0)[..., None] & np.isfinite(block)
+            block[patch] = attenuated[patch]
+        field = np.zeros(
+            (len(self.sources), scene.sizes["across"], scene.sizes["along"]),
+            dtype=np.float32,
+        )
+        for position, source in enumerate(self.sources):
+            field[position, source.window.across, source.window.along] = source.injected
+        embedded = scene.copy()
+        embedded["radiance"] = radiance.copy(data=values)
+        embedded[self.injected_name] = xr.DataArray(
+            field,
+            dims=("source", "across", "along"),
+            attrs={"units": "kg m-2", "column_convention": "vertical"},
+        )
+        embedded.attrs.update(self.attrs)
+        return embedded
+
 
 def windows_overlap(first: Window, second: Window) -> bool:
     """Return whether two index windows share at least one pixel."""

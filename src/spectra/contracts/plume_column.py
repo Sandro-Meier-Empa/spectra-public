@@ -199,10 +199,10 @@ def validate_plume_column(
     _require_units(column, "column", COLUMN_UNITS)
     if not np.issubdtype(column.dtype, np.floating):
         raise ContractError("PlumeColumn 'column' must be floating point.")
-    values = column.values
-    if not np.all(np.isfinite(values)):
+    # Reductions keep dask-backed columns chunked instead of loading them.
+    if not bool(xr.apply_ufunc(np.isfinite, column, dask="allowed").all()):
         raise ContractError("PlumeColumn 'column' must be finite everywhere.")
-    if np.any(values < 0):
+    if bool((column < 0).any()):
         raise ContractError("PlumeColumn 'column' must be non-negative.")
 
     if "emission_rate" not in dataset:

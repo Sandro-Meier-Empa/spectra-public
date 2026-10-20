@@ -169,7 +169,8 @@ class Aviris4Adapter:
                 "adapter_version": spectra.__version__,
             }
         )
-        return scene
+        # Radiance and geometry come from different files and chunkings.
+        return scene.unify_chunks()
 
 
 __all__ = ["DEFAULT_CHUNKS", "LAYOUT", "ROLES", "Aviris4Adapter"]
