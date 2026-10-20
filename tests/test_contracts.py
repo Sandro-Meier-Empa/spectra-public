@@ -268,16 +268,9 @@ SCENE_MUTATIONS: dict[str, Mutation] = {
     "radiance_wrong_dims": lambda ds: ds.assign(radiance=ds["radiance"].isel(band=0)),
     "radiance_no_units": lambda ds: with_units(ds, "radiance", None),
     "sza_wrong_dims": lambda ds: ds.assign(sza=("band", np.zeros(ds.sizes["band"]))),
-    "h2o_wrong_dims": lambda ds: ds.assign(
-        h2o_column=("band", np.ones(ds.sizes["band"]))
-    ),
     "missing_valid": lambda ds: ds.drop_vars("valid"),
     "valid_not_bool": lambda ds: as_dtype(ds, "valid", "int8"),
     "valid_wrong_dims": lambda ds: ds.assign(valid=ds["valid"].isel(across=0)),
-    "cloud_not_bool": lambda ds: ds.assign(
-        cloud=xr.zeros_like(ds["valid"], dtype="int8")
-    ),
-    "shadow_wrong_dims": lambda ds: ds.assign(shadow=ds["valid"].isel(along=0)),
     "missing_pixel_area": lambda ds: ds.drop_vars("pixel_area"),
     "pixel_area_wrong_dims": lambda ds: ds.assign(pixel_area=100.0),
     "platform_invalid": lambda ds: with_attr(ds, "platform", "balloon"),
@@ -300,9 +293,8 @@ def test_scene_fixture_validates(scene: xr.Dataset) -> None:
         )
     )
     validate_sensor_scene(along_time)
-    validate_sensor_scene(
-        scene.assign(cloud=xr.zeros_like(scene["valid"]), h2o_column=1.5)
-    )
+    # Variables beyond the contract are carried along unchecked.
+    validate_sensor_scene(scene.assign(cloud=xr.zeros_like(scene["valid"])))
 
 
 @pytest.mark.parametrize("mutation", list(SCENE_MUTATIONS), ids=list(SCENE_MUTATIONS))
@@ -552,7 +544,7 @@ def test_registry_unknown_group_and_name() -> None:
         registry.list_plugins(cast(registry.PluginGroup, "nope"))
 
 
-def test_registry_loads_toy_plugins() -> None:
-    assert {"toy", "aviris4"} <= set(registry.list_plugins("sensors"))
-    assert isinstance(registry.get_sensor("toy"), SensorAdapter)
-    assert registry.get_sensor("toy").name == "toy"
+def test_registry_loads_sensor_plugins() -> None:
+    assert {"aviris4", "emit"} <= set(registry.list_plugins("sensors"))
+    assert isinstance(registry.get_sensor("emit"), SensorAdapter)
+    assert registry.get_sensor("aviris4").name == "aviris4"

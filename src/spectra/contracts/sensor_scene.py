@@ -1,4 +1,8 @@
-"""Contract B: sensor scenes in sensor geometry opened by adapters."""
+"""Sensor scenes in sensor geometry, the common format adapters open.
+
+The radiance keeps the native units of the sensor: the Lambert-Beer embedding
+only multiplies it with a transmittance.
+"""
 
 from __future__ import annotations
 
@@ -17,13 +21,7 @@ SENSOR_DIMS = ("across", "along", "band")
 SPATIAL_DIMS = ("across", "along")
 RADIANCE_UNITS = "W m-2 nm-1 sr-1"
 PLATFORMS = ("airborne", "spaceborne")
-REQUIRED_ATTRS = (
-    "sensor",
-    "platform",
-    "scene_id",
-    "acquisition_time",
-    "background_group",
-)
+REQUIRED_ATTRS = ("sensor", "platform", "scene_id", "acquisition_time")
 GEOMETRY_VARIABLES = (
     "sza",
     "saa",
@@ -32,7 +30,6 @@ GEOMETRY_VARIABLES = (
     "surface_elevation",
     "sensor_altitude",
 )
-OPTIONAL_MASKS = ("cloud", "shadow", "water", "saturation")
 
 
 @dataclass(frozen=True)
@@ -42,7 +39,6 @@ class SceneInfo:
     sensor: str
     scene_id: str
     platform: str
-    background_group: str
     n_across: int
     n_along: int
     n_band: int
@@ -119,16 +115,12 @@ def validate_sensor_scene(
         if name not in dataset:
             raise ContractError(f"SensorScene must contain '{name}'.")
         _spatial(dataset[name], name, allow_scalar=True)
-    if "h2o_column" in dataset:
-        _spatial(dataset["h2o_column"], "h2o_column", allow_scalar=True)
 
     if "valid" not in dataset:
         raise ContractError("SensorScene must contain a boolean 'valid' mask.")
-    for name in ("valid", *OPTIONAL_MASKS):
-        if name in dataset:
-            _spatial(dataset[name], name)
-            if dataset[name].dtype.kind != "b":
-                raise ContractError(f"SensorScene '{name}' must be boolean.")
+    _spatial(dataset["valid"], "valid")
+    if dataset["valid"].dtype.kind != "b":
+        raise ContractError("SensorScene 'valid' must be boolean.")
     if "pixel_area" not in dataset:
         raise ContractError("SensorScene must contain 'pixel_area'.")
     _spatial(dataset["pixel_area"], "pixel_area")
@@ -145,7 +137,6 @@ def validate_sensor_scene(
         sensor=str(dataset.attrs["sensor"]),
         scene_id=str(dataset.attrs["scene_id"]),
         platform=str(dataset.attrs["platform"]),
-        background_group=str(dataset.attrs["background_group"]),
         n_across=int(dataset.sizes["across"]),
         n_along=int(dataset.sizes["along"]),
         n_band=int(dataset.sizes["band"]),
@@ -180,7 +171,6 @@ def select_bands(
 
 __all__ = [
     "GEOMETRY_VARIABLES",
-    "OPTIONAL_MASKS",
     "PLATFORMS",
     "RADIANCE_UNITS",
     "REQUIRED_ATTRS",

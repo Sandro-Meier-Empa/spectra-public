@@ -29,7 +29,8 @@ def pixel_area_from_centres(x: xr.DataArray, y: xr.DataArray) -> xr.DataArray:
     dxl = plain_x.diff(along).pad({along: (0, 1)}, mode="edge")
     dyl = plain_y.diff(along).pad({along: (0, 1)}, mode="edge")
     area = abs(dxa * dyl - dya * dxl).transpose(across, along)
-    area = area.assign_coords({across: x[across], along: x[along]})
+    indexes = {dim: x[dim] for dim in (across, along) if dim in x.coords}
+    area = area.assign_coords(indexes)
     area.attrs = {"units": "m2", "long_name": "pixel area from centre spacing"}
     return area
 

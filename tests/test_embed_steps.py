@@ -17,9 +17,8 @@ from spectra.pipeline import (
     snapshot_column,
 )
 from spectra.regrid.polygon import PolygonRegridder
-from spectra.sensors.toy import ToySensorAdapter
 from spectra.spectral.providers.toy import ToyUnitAbsorption
-from spectra.testing import make_plume_column
+from spectra.testing import make_plume_column, make_sensor_scene
 from spectra.types import Placement
 
 SPEC = EmbeddingSpec(enhancements_ppm=(1.0, 10.0, 100.0, 1000.0))
@@ -27,8 +26,7 @@ SPEC = EmbeddingSpec(enhancements_ppm=(1.0, 10.0, 100.0, 1000.0))
 
 @pytest.fixture(scope="module")
 def toy_inputs() -> dict:
-    adapter = ToySensorAdapter(n_across=32, n_along=48, noise_sigma=0.0)
-    scene = adapter.open_scene(adapter.list_scenes(None, n=1)[0]).load()
+    scene = make_sensor_scene(n_across=32, n_along=48, noise_sigma=0.0).load()
     snapshot = snapshot_column(
         make_plume_column(nx=24, ny=24, dx=2.0, n_time=1, seed=1), time_index=0
     )

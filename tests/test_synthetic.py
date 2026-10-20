@@ -151,7 +151,6 @@ def test_sensor_scene_validates(rotation: float) -> None:
     assert scene["radiance"].chunks is not None
     assert scene["valid"].dtype == bool and bool(scene["valid"].all())
     assert np.allclose(scene["pixel_area"].values, 50.0)
-    assert scene.attrs["background_group"] == "toy:toy-0001"
     assert scene.attrs["geometry_space"] == "sensor"
     assert scene.attrs["acquisition_time"] == "2026-06-01T10:30:00"
     assert scene["time"].dims == ()
@@ -196,13 +195,11 @@ def test_sensor_scene_options() -> None:
         wavelengths=[1600.0, 1650.0, 1700.0],
         fwhm_nm=[5.0, 6.0, 7.0],
         platform="spaceborne",
-        background_group="site:a",
         acquisition_time="2025-03-04T05:06:07",
         crs=32631,
     )
     info = validate_sensor_scene(scene, require_lazy=True)
     assert info.platform == "spaceborne"
-    assert info.background_group == "site:a"
     assert info.crs.to_epsg() == 32631
     assert scene.attrs["acquisition_time"] == "2025-03-04T05:06:07"
     assert np.allclose(scene["fwhm"].values, [5.0, 6.0, 7.0])

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
@@ -30,39 +29,6 @@ ANCHOR_CORNERS: tuple[AnchorCorner, ...] = (
 )
 ANCHOR_POINTS: tuple[AnchorPoint, ...] = ("source", *ANCHOR_CORNERS)
 FLIPS: tuple[Flip, ...] = ("none", "x", "y")
-
-
-@dataclass(frozen=True)
-class SceneRecord:
-    """One scene known to a sensor adapter.
-
-    Attributes:
-        sensor: Registry name of the adapter that produced the record.
-        scene_id: Identifier unique within the sensor.
-        platform: Airborne or spaceborne.
-        acquisition_time: UTC acquisition time.
-        background_group: Leakage group shared by scenes that must not be split
-            between training and evaluation.
-        uris: Role to URI mapping, for example ``radiance``, ``metadata``,
-            ``shadow``, ``cloud``, ``product``.
-        center_lonlat: Scene centre in degrees.
-        bbox_lonlat: West, south, east, north bounds in degrees, if known.
-        has_radiance: Whether a radiance cube is available.
-        has_product: Whether a retrieved column product is available.
-        extra: Sensor-specific metadata such as flight line or orbit.
-    """
-
-    sensor: str
-    scene_id: str
-    platform: Platform
-    acquisition_time: datetime
-    background_group: str
-    uris: Mapping[str, str]
-    center_lonlat: tuple[float, float]
-    bbox_lonlat: tuple[float, float, float, float] | None = None
-    has_radiance: bool = True
-    has_product: bool = False
-    extra: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -462,7 +428,6 @@ __all__ = [
     "Platform",
     "RadianceLeg",
     "SceneGeometry",
-    "SceneRecord",
     "SpectralResponse",
     "ViewingGeometry",
     "Window",

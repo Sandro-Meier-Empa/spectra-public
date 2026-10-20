@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import xarray as xr
+import yaml
 
 GOLDEN = Path(__file__).parent / "golden"
 INPUTS = GOLDEN / "inputs"
@@ -15,11 +16,12 @@ EXPECTED = GOLDEN / "expected"
 
 # Real resources are supplied through environment variables so the suite runs
 # without them; tests needing them are skipped. SPECTRA never searches
-# directories for scene files: real flight lines are listed in a scene table.
+# directories for scene files: real scenes are listed file by file in a small
+# YAML file ``{files: {role: /path/to/file}}`` named by SPECTRA_TEST_<SENSOR>_FILES.
 RESOURCES_ENV = "SPECTRA_TEST_RESOURCES"  # libRadtran/ARTS/solar resource root
-DATA_ENV = "SPECTRA_TEST_DATA"  # directory with real scene/CDO data
+DATA_ENV = "SPECTRA_TEST_DATA"  # directory with real regridding comparison data
 MICROHH_ENV = "SPECTRA_TEST_MICROHH_CASE"  # MicroHH case directory
-AVIRIS4_SCENES_ENV = "SPECTRA_TEST_AVIRIS4_SCENES"  # scene table CSV (full paths)
+OUTPUT_ENV = "SPECTRA_TEST_OUTPUT_DIR"  # where real-data outputs may be written
 
 
 def require_golden() -> None:
@@ -94,7 +96,8 @@ def microhh_case_dir() -> Path:
     return env_path(MICROHH_ENV)
 
 
-@pytest.fixture(scope="session")
-def aviris4_scenes_table() -> Path:
-    """Scene table (CSV) listing real AVIRIS-4 flight lines with full paths."""
-    return env_path(AVIRIS4_SCENES_ENV)
+def native_files(sensor: str) -> dict[str, Path]:
+    """Return the files of one real scene listed in SPECTRA_TEST_<SENSOR>_FILES."""
+    listing = env_path(f"SPECTRA_TEST_{sensor.upper()}_FILES")
+    files = yaml.safe_load(listing.read_text())["files"]
+    return {role: Path(path) for role, path in files.items()}

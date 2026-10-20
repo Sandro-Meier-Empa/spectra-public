@@ -34,6 +34,20 @@ def projected_metre_crs(value: str | int | pyproj.CRS) -> pyproj.CRS:
     return crs
 
 
+def utm_crs(lon: float, lat: float) -> pyproj.CRS:
+    """Return the WGS 84 UTM zone CRS containing a point.
+
+    Uses the regular 6-degree zones (no Norway/Svalbard exceptions).
+
+    Raises:
+        ContractError: If the point is not finite or outside the UTM latitudes.
+    """
+    if not (np.isfinite(lon) and np.isfinite(lat)) or not -80.0 <= lat <= 84.0:
+        raise ContractError(f"No UTM zone for lon={lon}, lat={lat}.")
+    zone = int((float(lon) + 180.0) // 6.0) % 60 + 1
+    return projected_metre_crs((32600 if lat >= 0 else 32700) + zone)
+
+
 def projected_crs_from_xy(x: xr.DataArray, y: xr.DataArray) -> pyproj.CRS:
     """Return the projected CRS declared by ``epsg`` attributes on x and y."""
     epsg_x = x.attrs.get("epsg")
@@ -116,4 +130,5 @@ __all__ = [
     "require_projected_metre_crs",
     "spatial_ref_coordinate",
     "to_lonlat",
+    "utm_crs",
 ]

@@ -335,7 +335,6 @@ def make_sensor_scene(
     scene_id: str = "toy-0001",
     platform: Platform = "airborne",
     acquisition_time: str | datetime | np.datetime64 = "2026-06-01T10:30:00",
-    background_group: str | None = None,
     seed: int = 0,
     lazy: bool = True,
 ) -> xr.Dataset:
@@ -369,7 +368,6 @@ def make_sensor_scene(
         scene_id: Scene identifier.
         platform: Airborne or spaceborne.
         acquisition_time: UTC acquisition time.
-        background_group: Leakage group; defaults to ``toy:<scene_id>``.
         seed: Seed of the albedo texture and the noise.
         lazy: Back the radiance by a dask array.
 
@@ -421,7 +419,6 @@ def make_sensor_scene(
 
     time = _to_datetime64(acquisition_time)
     pixel_area = float(pixel_across_m * pixel_along_m)
-    group = f"toy:{scene_id}" if background_group is None else background_group
     spatial_shape = (n_across, n_along)
     scene = xr.Dataset(
         {
@@ -489,7 +486,6 @@ def make_sensor_scene(
             "platform": platform,
             "scene_id": scene_id,
             "acquisition_time": np.datetime_as_string(time, unit="s"),
-            "background_group": group,
             "geometry_space": "sensor",
             "adapter_version": spectra.__version__,
             "pixel_size_m": float(np.sqrt(pixel_area)),

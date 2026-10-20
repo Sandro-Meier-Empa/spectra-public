@@ -13,10 +13,10 @@ from typing import Any, Protocol, runtime_checkable
 import xarray as xr
 
 from spectra.types import (
+    NativeLayout,
     Placement,
     Platform,
     RadianceLeg,
-    SceneRecord,
     SpectralResponse,
     ViewingGeometry,
     Window,
@@ -25,35 +25,30 @@ from spectra.types import (
 
 @runtime_checkable
 class SensorAdapter(Protocol):
-    """Discover scenes of one sensor and open them as ``SensorScene`` datasets."""
+    """Open one sensor's native files as a ``SensorScene`` and locate its radiance.
+
+    Adapters never discover files: the user lists every file by role.
+    ``LAYOUT`` tells the copy-and-patch exporter where the radiance lives in
+    the native file, so import and export share one dimension mapping.
+    """
 
     name: str
     platform: Platform
-
-    def list_scenes(
-        self,
-        scenes: str | Path | Sequence[Mapping[str, object]],
-        **filters: object,
-    ) -> list[SceneRecord]:
-        """Return the scenes of an explicit scene table (CSV/YAML path or rows).
-
-        Adapters never discover files from directory layouts; every file of
-        every scene is listed by the user (see :mod:`spectra.sensors.table`).
-        """
-        ...
+    ROLES: Mapping[str, bool]
+    LAYOUT: NativeLayout
 
     def open_scene(
-        self, record: SceneRecord, *, chunks: Mapping[str, int] | None = None
+        self,
+        files: Mapping[str, str | Path],
+        *,
+        chunks: Mapping[str, int] | None = None,
     ) -> xr.Dataset:
-        """Open one scene lazily as a ``SensorScene`` dataset."""
-        ...
+        """Open one scene lazily as a ``SensorScene`` dataset.
 
-    def quality_masks(self, scene: xr.Dataset, record: SceneRecord) -> xr.Dataset:
-        """Return boolean ``valid``/``cloud``/``shadow`` masks on the scene grid."""
-        ...
-
-    def background_group(self, record: SceneRecord) -> str:
-        """Return the leakage group of a scene."""
+        Args:
+            files: File path by role (``ROLES``).
+            chunks: Dask chunks in common dimension names.
+        """
         ...
 
 

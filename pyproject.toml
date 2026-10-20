@@ -64,7 +64,7 @@ spectra = "spectra.cli:main"
 # Plugin groups. Third-party packages register adapters under the same groups.
 [project.entry-points."spectra.sensors"]
 aviris4 = "spectra.sensors.aviris4:Aviris4Adapter"
-toy = "spectra.sensors.toy:ToySensorAdapter"
+emit = "spectra.sensors.emit:EmitAdapter"
 
 [project.entry-points."spectra.unit_absorption"]
 libradtran_arts = "spectra.spectral.providers.libradtran_arts:LibRadtranArtsProvider"
