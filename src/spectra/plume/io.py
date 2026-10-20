@@ -1,4 +1,4 @@
-"""Read and write ``PlumeColumn`` datasets (Contract A)."""
+"""Read and write ``PlumeColumn`` datasets as NetCDF."""
 
 from __future__ import annotations
 
@@ -19,22 +19,13 @@ _TIME_ENCODING = {
 _COLUMN_VARIABLES = ("column", "column_below_altitude", "concentration")
 
 
-def _is_zarr(path: Path) -> bool:
-    """Return whether ``path`` is a Zarr store."""
-    if path.suffix == ".zarr":
-        return True
-    return path.is_dir() and any(
-        (path / marker).exists() for marker in ("zarr.json", ".zgroup", ".zmetadata")
-    )
-
-
 def open_plume_column(
     uri: str | Path, *, chunks: Mapping[str, int] | str | None = None
 ) -> xr.Dataset:
-    """Open and validate a plume column stored as NetCDF or Zarr.
+    """Open and validate a plume column stored as NetCDF.
 
     Args:
-        uri: Path of the NetCDF file or Zarr store.
+        uri: Path of the NetCDF file.
         chunks: Dask chunking passed to xarray; ``None`` loads lazily without
             Dask.
 
@@ -48,10 +39,7 @@ def open_plume_column(
     path = Path(uri)
     if not path.exists():
         raise FileNotFoundError(f"Plume column {path} does not exist.")
-    if _is_zarr(path):
-        dataset = xr.open_dataset(path, engine="zarr", chunks=chunks)
-    else:
-        dataset = xr.open_dataset(path, engine="netcdf4", chunks=chunks)
+    dataset = xr.open_dataset(path, engine="netcdf4", chunks=chunks)
     validate_plume_column(dataset)
     return dataset
 
@@ -88,14 +76,14 @@ def _prepare_for_writing(dataset: xr.Dataset) -> tuple[xr.Dataset, dict[str, dic
 def write_plume_column(
     dataset: xr.Dataset, path: str | Path, *, overwrite: bool = False
 ) -> Path:
-    """Validate a plume column and write it as compressed NetCDF or Zarr.
+    """Validate a plume column and write it as compressed NetCDF.
 
     The file is written next to the target and moved into place, so a dataset
     opened from ``path`` can be rewritten with ``overwrite=True``.
 
     Args:
         dataset: Dataset following the ``PlumeColumn`` contract.
-        path: Target file; a ``.zarr`` suffix selects a Zarr store.
+        path: Target file.
         overwrite: Whether an existing target may be replaced.
 
     Returns:
@@ -116,22 +104,14 @@ def write_plume_column(
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=target.parent))
     temporary = staging / target.name
     try:
-        if _is_zarr(target):
-            prepared.to_zarr(temporary, mode="w", encoding=encoding)
-        else:
-            ny, nx = prepared.sizes["y"], prepared.sizes["x"]
-            for name in _COLUMN_VARIABLES:
-                if name in encoding:
-                    leading = (1,) * (prepared[name].ndim - 2)
-                    encoding[name].update(
-                        {"zlib": True, "complevel": 4, "chunksizes": (*leading, ny, nx)}
-                    )
-            prepared.to_netcdf(temporary, engine="netcdf4", encoding=encoding)
-        if target.exists():
-            if target.is_dir():
-                shutil.rmtree(target)
-            else:
-                target.unlink()
+        ny, nx = prepared.sizes["y"], prepared.sizes["x"]
+        for name in _COLUMN_VARIABLES:
+            if name in encoding:
+                leading = (1,) * (prepared[name].ndim - 2)
+                encoding[name].update(
+                    {"zlib": True, "complevel": 4, "chunksizes": (*leading, ny, nx)}
+                )
+        prepared.to_netcdf(temporary, engine="netcdf4", encoding=encoding)
         temporary.replace(target)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

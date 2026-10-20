@@ -79,16 +79,7 @@ def blob(window: Window, peak: float, centre: tuple[float, float]) -> np.ndarray
 
 def geometry() -> ViewingGeometry:
     return ViewingGeometry(
-        sza=30.0,
-        saa=150.0,
-        vza=5.0,
-        vaa=100.0,
-        surface_elevation=300.0,
-        sensor_altitude=4000.0,
-        lat=0.0,
-        lon=0.0,
-        time_utc=np.datetime64("2025-01-01T00:00:00"),
-        platform="airborne",
+        sza=30.0, vza=5.0, surface_elevation=300.0, sensor_altitude=4000.0
     )
 
 

@@ -15,14 +15,11 @@ import numpy as np
 import ucat
 import xarray as xr
 
-import spectra
-
 EMBEDDING_VERSION = "lambert-beer-v1"
 COLUMN_UNITS = "kg/m2"
 PPM_METRE_UNITS = "ppm-m"
 
 ColumnConvention = Literal["vertical", "slant"]
-EmbeddingMethod = Literal["radiance"]
 
 
 def _band_dimension(radiance: xr.DataArray) -> str:
@@ -116,17 +113,13 @@ def embed_column_in_radiance(
     lut: xr.Dataset,
     *,
     gas: str = "ch4",
-    column_convention: ColumnConvention = "vertical",
 ) -> xr.DataArray:
     """Attenuate radiance with a Lambert-Beer plume.
 
     The LUT optical depths are the total attenuation caused by a vertical
     column, because the air mass factor cancels in
-    ``sigma_slant * slant_amount``. The path amount of each pixel is therefore
-    matched against ``vertical_amount`` for a vertical column and against
-    ``slant_amount`` for a selected-path slant column. The matched filter
-    retrieves vertical columns, so ``column_convention="vertical"`` keeps the
-    injected truth and the retrieval on the same convention.
+    ``sigma_slant * slant_amount``; the vertical path amount of each pixel is
+    therefore matched against ``vertical_amount``.
 
     The column must share the radiance spatial grid, and radiance wavelengths
     must be an exact LUT subset. Optical depth is negative by matched-filter
@@ -140,20 +133,13 @@ def embed_column_in_radiance(
         lut: Absorption table from
             :func:`spectra.spectral.lut.build_slant_absorption_lut`.
         gas: Gas name used for unit conversion.
-        column_convention: Path convention of the embedded column.
 
     Returns:
         Attenuated radiance with the original name and metadata.
 
     Raises:
-        ValueError: If units, grids, wavelengths, conventions, or LUT coverage
-            are invalid.
+        ValueError: If units, grids, wavelengths or LUT coverage are invalid.
     """
-    if column_convention not in ("vertical", "slant"):
-        raise ValueError(
-            "Invalid column_convention "
-            f"{column_convention!r}. Choose 'vertical' or 'slant'."
-        )
     column_units = simulated_column.attrs.get("units")
     if column_units is None:
         raise ValueError(
@@ -169,15 +155,12 @@ def embed_column_in_radiance(
     wavelength = radiance["wavelength"]
     optical_depth = _select_optical_depth(lut, wavelength)
     amount = _nonnegative_column(simulated_column, column_units, gas, PPM_METRE_UNITS)
-    amount_coordinate = (
-        "vertical_amount" if column_convention == "vertical" else "slant_amount"
-    )
-    nodes = np.asarray(lut[amount_coordinate].values, dtype=float)
+    nodes = np.asarray(lut["vertical_amount"].values, dtype=float)
 
     maximum = float(amount.max())
     if maximum > nodes[-1]:
         raise ValueError(
-            f"Plume reaches {maximum:.1f} {PPM_METRE_UNITS} ({column_convention}), "
+            f"Plume reaches {maximum:.1f} {PPM_METRE_UNITS} (vertical), "
             f"beyond the tabulated maximum of {nodes[-1]:.1f} {PPM_METRE_UNITS}. "
             "Extend the enhancement nodes rather than letting the interpolation "
             "clamp and silently under-attenuate the plume."
@@ -261,65 +244,11 @@ def injected_column(
     return injected
 
 
-def embedding_provenance(
-    method: EmbeddingMethod,
-    geometric_amf: float | None = None,
-    lut: xr.Dataset | None = None,
-    column_convention: ColumnConvention | None = None,
-    *,
-    sensor: str | None = None,
-    regridder: str | None = None,
-) -> dict[str, object]:
-    """Return embedding provenance attributes for an embedded dataset.
-
-    Args:
-        method: Embedding method, ``"radiance"``.
-        geometric_amf: Geometric air mass factor of the radiance embedding.
-        lut: Absorption table whose descriptive attributes are copied with an
-            ``embedding_`` prefix.
-        column_convention: Path convention of the embedded column.
-        sensor: Registry name of the sensor adapter, if any.
-        regridder: Registry name of the regridder that placed the column.
-
-    Returns:
-        Attributes prefixed with ``embedding_`` plus ``sensor`` when given.
-    """
-    attrs: dict[str, object] = {
-        "embedding_method": method,
-        "embedding_version": EMBEDDING_VERSION,
-        "embedding_spectra_version": spectra.__version__,
-    }
-    if column_convention is not None:
-        attrs["embedding_column_convention"] = column_convention
-    if geometric_amf is not None:
-        attrs["embedding_geometric_air_mass_factor"] = geometric_amf
-    if lut is not None:
-        for key in (
-            "gas",
-            "scenario",
-            "layer_height",
-            "effective_layer_height",
-            "radiance_leg",
-            "sza",
-            "vza",
-            "amf_convention",
-        ):
-            if key in lut.attrs:
-                attrs[f"embedding_{key}"] = lut.attrs[key]
-    if sensor is not None:
-        attrs["sensor"] = sensor
-    if regridder is not None:
-        attrs["embedding_regridder"] = regridder
-    return attrs
-
-
 __all__ = [
     "COLUMN_UNITS",
     "EMBEDDING_VERSION",
     "PPM_METRE_UNITS",
     "ColumnConvention",
-    "EmbeddingMethod",
     "embed_column_in_radiance",
-    "embedding_provenance",
     "injected_column",
 ]

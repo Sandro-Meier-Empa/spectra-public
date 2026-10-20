@@ -1,4 +1,4 @@
-"""Structural protocols implemented by sensor adapters and other plugins.
+"""Structural protocols implemented by sensor adapters and forward models.
 
 The protocols are runtime-checkable and structural, so a third-party adapter
 does not need to import SPECTRA to satisfy them.
@@ -6,7 +6,7 @@ does not need to import SPECTRA to satisfy them.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -14,12 +14,9 @@ import xarray as xr
 
 from spectra.types import (
     NativeLayout,
-    Placement,
     Platform,
-    RadianceLeg,
     SpectralResponse,
     ViewingGeometry,
-    Window,
 )
 
 
@@ -49,44 +46,6 @@ class SensorAdapter(Protocol):
             files: File path by role (``ROLES``).
             chunks: Dask chunks in common dimension names.
         """
-        ...
-
-
-@runtime_checkable
-class UnitAbsorptionProvider(Protocol):
-    """Compute unit absorption spectra and absorption tables for a sensor.
-
-    A provider whose forward model covers a limited wavelength range may
-    expose it as an optional ``spectral_range_nm = (min, max)`` attribute;
-    scene bands outside it are then passed through the embedding unattenuated.
-    """
-
-    name: str
-
-    def spectrum(
-        self,
-        response: SpectralResponse,
-        geometry: ViewingGeometry,
-        *,
-        enhancement_ppm: float,
-        gas: str = "CH4",
-        layer_height_m: float = 1000.0,
-        radiance_leg: RadianceLeg = "both",
-    ) -> xr.Dataset:
-        """Return a unit absorption spectrum (``UnitAbsorptionSpectrum`` schema)."""
-        ...
-
-    def lut(
-        self,
-        response: SpectralResponse,
-        geometry: ViewingGeometry,
-        *,
-        enhancements_ppm: Sequence[float],
-        gas: str = "CH4",
-        layer_height_m: float = 1000.0,
-        radiance_leg: RadianceLeg = "both",
-    ) -> xr.Dataset:
-        """Return an absorption look-up table (``AbsorptionLut`` schema)."""
         ...
 
 
@@ -130,27 +89,4 @@ class ForwardModel(Protocol):
         ...
 
 
-@runtime_checkable
-class Regridder(Protocol):
-    """Conservatively place a plume column on a sensor grid."""
-
-    name: str
-
-    def to_scene(
-        self,
-        column: xr.DataArray,
-        scene: xr.Dataset,
-        placement: Placement,
-        *,
-        window: Window | None = None,
-    ) -> xr.DataArray:
-        """Return the column in kg m-2 on the sensor grid, cropped to ``window``."""
-        ...
-
-
-__all__ = [
-    "ForwardModel",
-    "Regridder",
-    "SensorAdapter",
-    "UnitAbsorptionProvider",
-]
+__all__ = ["ForwardModel", "SensorAdapter"]

@@ -1,36 +1,30 @@
-"""Negative tests of the data contracts, shared types, unit conversion and registry."""
+"""Negative tests of the data contracts, shared types and unit conversion."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast
 
 import numpy as np
 import pyproj
 import pytest
 import xarray as xr
 
-from spectra import registry
 from spectra.contracts import (
     ContractError,
-    PluginError,
     convert_column_units,
     scale_emission,
     validate_lut,
     validate_plume_column,
     validate_sensor_scene,
-    validate_unit_absorption_spectrum,
 )
 from spectra.contracts.lut import LUT_REQUIRED_ATTRS, LUT_VARIABLES
 from spectra.contracts.plume_column import REQUIRED_ATTRS as PLUME_ATTRS
 from spectra.contracts.sensor_scene import GEOMETRY_VARIABLES
 from spectra.contracts.sensor_scene import REQUIRED_ATTRS as SCENE_ATTRS
 from spectra.geometry.crs import spatial_ref_coordinate
-from spectra.protocols import SensorAdapter
 from spectra.testing import (
     make_plume_column,
     make_sensor_scene,
-    make_unit_absorption_spectrum,
 )
 from spectra.types import (
     Placement,
@@ -353,7 +347,7 @@ def test_convert_column_units_identity() -> None:
     assert alias.attrs["units"] == "kg m-2"
 
 
-# --- LUT and unit absorption spectra ---------------------------------------
+# --- LUT ---------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -433,29 +427,6 @@ def test_lut_requires_attr(lut: xr.Dataset, name: str) -> None:
     assert_contract_error(validate_lut, without_attr(lut, name))
 
 
-SPECTRUM_MUTATIONS: dict[str, Mutation] = {
-    "missing_variable": lambda ds: ds.drop_vars("unit_abs_spect"),
-    "wrong_dims": lambda ds: ds.assign(
-        unit_abs_spect=ds["unit_abs_spect"].expand_dims("enhancement")
-    ),
-    "wavelength_not_increasing": lambda ds: ds.assign_coords(
-        wavelength=ds["wavelength"].values[::-1]
-    ),
-    "not_finite": lambda ds: with_value(ds, "unit_abs_spect", np.nan),
-}
-
-
-@pytest.mark.parametrize(
-    "mutation", list(SPECTRUM_MUTATIONS), ids=list(SPECTRUM_MUTATIONS)
-)
-def test_unit_absorption_spectrum_rejects(mutation: str) -> None:
-    spectrum = make_unit_absorption_spectrum(np.arange(2100.0, 2400.0, 10.0))
-    validate_unit_absorption_spectrum(spectrum)
-    assert_contract_error(
-        validate_unit_absorption_spectrum, SPECTRUM_MUTATIONS[mutation](spectrum)
-    )
-
-
 # --- shared types ------------------------------------------------------------
 
 
@@ -530,21 +501,3 @@ def test_spectral_response_validation() -> None:
         SpectralResponse(
             wavelength=np.array([2100.0, 2150.0]), fwhm=np.array([8.0, 0.0])
         )
-
-
-# --- registry ----------------------------------------------------------------
-
-
-def test_registry_unknown_group_and_name() -> None:
-    with pytest.raises(PluginError, match="Unknown plugin group"):
-        registry.load_plugin(cast(registry.PluginGroup, "nope"), "toy")
-    with pytest.raises(PluginError, match="registered"):
-        registry.load_plugin("sensors", "does-not-exist")
-    with pytest.raises(PluginError):
-        registry.list_plugins(cast(registry.PluginGroup, "nope"))
-
-
-def test_registry_loads_sensor_plugins() -> None:
-    assert {"aviris4", "emit"} <= set(registry.list_plugins("sensors"))
-    assert isinstance(registry.get_sensor("emit"), SensorAdapter)
-    assert registry.get_sensor("aviris4").name == "aviris4"

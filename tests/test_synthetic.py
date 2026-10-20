@@ -13,12 +13,10 @@ from spectra.contracts import (
     select_time,
     validate_plume_column,
     validate_sensor_scene,
-    validate_unit_absorption_spectrum,
 )
 from spectra.testing import (
     make_plume_column,
     make_sensor_scene,
-    make_unit_absorption_spectrum,
     scene_pixel_centres,
     scene_seed,
 )
@@ -167,7 +165,7 @@ def test_sensor_scene_validates(rotation: float) -> None:
     SpectralResponse.from_scene(scene)
     SceneGeometry.from_scene(scene)
     geometry = ViewingGeometry.from_scene(scene)
-    assert geometry.sza == 30.0 and geometry.platform == "airborne"
+    assert geometry.sza == 30.0 and geometry.sensor_altitude == 3000.0
 
 
 def test_sensor_scene_eager_fails_lazy_check() -> None:
@@ -211,16 +209,3 @@ def test_sensor_scene_options() -> None:
         make_sensor_scene(wavelengths=[2.0, 1.0])
     with pytest.raises(ContractError):
         make_sensor_scene(crs="EPSG:4326")
-
-
-# --- unit absorption -------------------------------------------------------
-
-
-def test_unit_absorption_spectrum(scene: xr.Dataset) -> None:
-    target = make_unit_absorption_spectrum(scene["wavelength"].values)
-    validate_unit_absorption_spectrum(target)
-    values = target["unit_abs_spect"].values
-    assert np.all(values <= 0) and values.min() == pytest.approx(-5e-5, rel=0.2)
-    assert target["unit_abs_spect"].attrs["units"] == "ppm-1 m-1"
-    with pytest.raises(ValueError, match="negative"):
-        make_unit_absorption_spectrum(scene["wavelength"].values, peak=1e-5)

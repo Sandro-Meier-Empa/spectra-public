@@ -1,8 +1,10 @@
-"""The multi-plume pipeline reproduces the single-plume pipeline it replaces.
+"""The multi-plume pipeline reproduces the single-plume pipeline it replaced.
 
-Runs on the golden AVIRIS-4 crop with the golden MicroHH snapshot, the golden
-"rot" placement and the golden absorption table, through the real AVIRIS-4
-adapter.
+``expected/embedded_rot_window.nc`` holds the output of the v0.1.0 pipeline
+(``place_and_regrid`` + ``embed_radiance_sample``) on the golden AVIRIS-4
+crop with the golden MicroHH snapshot, the golden "rot" placement and the
+golden absorption table. The current pipeline, run through the real AVIRIS-4
+adapter, must reproduce it bit for bit.
 """
 
 from __future__ import annotations
@@ -15,18 +17,11 @@ import pytest
 import xarray as xr
 
 from spectra.contracts.plume_column import plume_column_attrs
-from spectra.pipeline import (
-    EmbeddingSpec,
-    embed_radiance_sample,
-    embed_scene,
-    place_and_regrid,
-    snapshot_column,
-)
+from spectra.pipeline import embed_scene
 from spectra.plume.io import write_plume_column
-from spectra.regrid.polygon import PolygonRegridder
 from spectra.run import AnchorSpec, PlumeSpec
 from spectra.sensors import Aviris4Adapter
-from spectra.types import Placement, SpectralResponse, ViewingGeometry
+from spectra.types import SpectralResponse, ViewingGeometry, Window
 
 pytestmark = pytest.mark.golden
 
@@ -101,8 +96,12 @@ def plume_file(golden_microhh_raw: xr.Dataset, tmp_path_factory) -> Path:
     return path
 
 
-def test_new_pipeline_reproduces_old(
-    golden_inputs: Path, golden_record: dict, golden_lut: xr.Dataset, plume_file: Path
+def test_pipeline_reproduces_single_plume_reference(
+    golden_inputs: Path,
+    golden_expected: Path,
+    golden_record: dict,
+    golden_lut: xr.Dataset,
+    plume_file: Path,
 ) -> None:
     files = {
         "radiance": golden_inputs / "radiance_window.nc",
@@ -110,42 +109,32 @@ def test_new_pipeline_reproduces_old(
     }
     scene = Aviris4Adapter().open_scene(files)
     record = golden_record["placements"]["rot"]
-    corner = record["anchor"]
-
-    # The single-plume pipeline being replaced.
-    with xr.open_dataset(plume_file) as dataset:
-        column = snapshot_column(dataset.load(), time_index=0)
-    placement = Placement(
-        anchor_along=record["along_index"],
-        anchor_across=record["across_index"],
-        anchor_corner=corner,
-        rotation_deg=record["rotation"],
-    )
-    injected = place_and_regrid(scene, column, placement, regridder=PolygonRegridder())
-    spec = EmbeddingSpec(enhancements_ppm=tuple(golden_lut["enhancement"].values))
-    old = embed_radiance_sample(scene, injected, lut=golden_lut, spec=spec)
-
-    # The multi-plume pipeline with one plume.
+    expected = xr.open_dataset(golden_expected / "embedded_rot_window.nc").load()
     plume = PlumeSpec(
         file=plume_file,
         time_index=0,
         anchor=AnchorSpec(
-            along=record["along_index"], across=record["across_index"], corner=corner
+            along=record["along_index"],
+            across=record["across_index"],
+            corner=record["anchor"],
         ),
         rotation=record["rotation"],
     )
+
     result, resolved = embed_scene(scene, [plume], FixedTable(golden_lut), seed=0)
+
     assert resolved == (plume,)
     (cluster,) = result.clusters
     (source,) = result.sources
-    window = cluster.window
-    np.testing.assert_array_equal(source.injected, injected.values.astype(np.float32))
-    assert source.window == window
-    new = result.to_dataset(scene)["radiance"].isel(window.indexers)
+    assert cluster.window == source.window == Window.from_attrs(expected.attrs)
     np.testing.assert_array_equal(
-        new.transpose("across", "along", "band").values,
-        old["radiance"].transpose("across", "along", "band").values,
+        source.injected, expected["injected_ch4_mass"].values.astype(np.float32)
     )
     assert source.injected_mass_kg == pytest.approx(
-        float(injected.attrs["regrid_target_mass"])
+        expected.attrs["regrid_target_mass"], rel=1e-12
+    )
+    embedded = result.to_dataset(scene)["radiance"].isel(cluster.window.indexers)
+    np.testing.assert_array_equal(
+        embedded.transpose("across", "along", "band").values,
+        expected["radiance"].values,
     )

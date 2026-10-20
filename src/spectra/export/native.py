@@ -265,7 +265,6 @@ def _patch_cluster(
             xr.DataArray(column, dims=("across", "along"), attrs={"units": "kg m-2"}),
             cluster.lut,
             gas=gas.lower(),
-            column_convention="vertical",
         ).values
         patch = plume[..., None] & ~bad
         patched = view.copy()

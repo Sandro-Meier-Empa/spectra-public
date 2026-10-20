@@ -1,4 +1,4 @@
-"""Tests for plume-column I/O and augmentation on a synthetic Contract A dataset."""
+"""Tests for plume-column I/O and partial columns on a synthetic plume column."""
 
 from __future__ import annotations
 
@@ -15,14 +15,10 @@ from spectra.contracts.plume_column import (
 )
 from spectra.plume import (
     column_below_altitude,
-    flip,
     open_plume_column,
     plume_fraction_below,
-    scale_to_emission_rate,
-    transform_wind,
     write_plume_column,
 )
-from spectra.types import Placement
 
 NX, NY, NT = 32, 24, 3
 DX = DY = 2.0
@@ -100,9 +96,8 @@ def test_synthetic_dataset_is_valid(plume):
     assert info.has_partial
 
 
-@pytest.mark.parametrize("suffix", [".nc", ".zarr"])
-def test_io_round_trip(plume, tmp_path, suffix):
-    target = write_plume_column(plume, tmp_path / f"blob{suffix}")
+def test_io_round_trip(plume, tmp_path):
+    target = write_plume_column(plume, tmp_path / "blob.nc")
     assert target.exists()
     reopened = open_plume_column(target)
     assert reopened["column"].dtype == np.float32
@@ -135,70 +130,6 @@ def test_open_rejects_invalid_file(plume, tmp_path):
     broken.to_netcdf(tmp_path / "broken.nc")
     with pytest.raises(ContractError):
         open_plume_column(tmp_path / "broken.nc")
-
-
-@pytest.mark.parametrize("axis", ["x", "y"])
-def test_flip_is_an_involution_and_preserves_mass(plume, axis):
-    flipped = flip(plume, axis)
-    validate_plume_column(flipped)
-    np.testing.assert_array_equal(flipped[axis].values, plume[axis].values)
-    assert flipped.attrs["augment_flip"] == axis
-    coordinate = plume[axis].values
-    assert flipped.attrs[f"source_{axis}"] == pytest.approx(
-        coordinate.min() + coordinate.max() - plume.attrs[f"source_{axis}"]
-    )
-    assert float(flipped["column"].sum()) == pytest.approx(float(plume["column"].sum()))
-    np.testing.assert_array_equal(
-        flipped["column"].values,
-        plume["column"].isel({axis: slice(None, None, -1)}).values,
-    )
-    wind = "wind_u" if axis == "x" else "wind_v"
-    np.testing.assert_array_equal(flipped[wind].values, -plume[wind].values)
-    twice = flip(flipped, axis)
-    xr.testing.assert_identical(twice.drop_attrs(), plume.drop_attrs())
-    assert twice.attrs["augment_flip"] == "none"
-    assert twice.attrs[f"source_{axis}"] == pytest.approx(plume.attrs[f"source_{axis}"])
-
-
-def test_scale_to_emission_rate(plume):
-    scaled, factor = scale_to_emission_rate(plume, 0.5)
-    assert factor == pytest.approx(5.0)
-    np.testing.assert_allclose(scaled["emission_rate"].values, 0.5)
-    np.testing.assert_allclose(scaled["column"].values, plume["column"].values * 5)
-    np.testing.assert_allclose(
-        scaled["column_below_altitude"].values,
-        plume["column_below_altitude"].values * 5,
-    )
-    assert scaled.attrs["emission_scale"] == pytest.approx(5.0)
-    assert scaled["column"].attrs["units"] == "kg m-2"
-
-
-def test_scale_to_emission_rate_requires_constant_rate(plume):
-    varying = plume.copy()
-    varying["emission_rate"] = varying["emission_rate"] * xr.DataArray(
-        [1.0, 2.0, 3.0], dims="time"
-    )
-    varying["emission_rate"].attrs["units"] = "kg s-1"
-    with pytest.raises(ContractError):
-        scale_to_emission_rate(varying, 0.5)
-    snapshot = select_time(varying, 1)
-    scaled, factor = scale_to_emission_rate(snapshot, 0.4)
-    assert factor == pytest.approx(2.0)
-    assert float(scaled["emission_rate"]) == pytest.approx(0.4)
-    with pytest.raises(ContractError):
-        scale_to_emission_rate(plume, 0.0)
-
-
-def test_transform_wind():
-    assert transform_wind(1.0, 0.0, Placement(rotation_deg=90)) == pytest.approx(
-        (0.0, 1.0)
-    )
-    assert transform_wind(1.0, 0.0, Placement(flip="x")) == pytest.approx((-1.0, 0.0))
-    assert transform_wind(1.0, 2.0, Placement(flip="y")) == pytest.approx((1.0, -2.0))
-    assert transform_wind(1.0, 0.0, Placement(flip="x", rotation_deg=90)) == (
-        pytest.approx((0.0, -1.0))
-    )
-    assert transform_wind(3.0, -1.0, Placement()) == pytest.approx((3.0, -1.0))
 
 
 def test_column_below_altitude(plume):

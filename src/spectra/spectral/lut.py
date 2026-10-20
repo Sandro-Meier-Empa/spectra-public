@@ -21,9 +21,6 @@ from spectra.geometry.amf import effective_layer_height, path_amf
 from spectra.spectral.embedding import EMBEDDING_VERSION, PPM_METRE_UNITS
 from spectra.types import RadianceLeg
 
-# Attributes copied from the model only when it defines them, so forward models
-# other than ``aviris4_ch4.mf.UnitAbsorption`` work without them.
-
 
 @runtime_checkable
 class UnitAbsorptionModel(Protocol):
@@ -108,7 +105,6 @@ def build_slant_absorption_lut(
     if np.any(np.diff(nodes) <= 0.0):
         raise ValueError("Enhancement nodes must be strictly increasing.")
 
-    # Read once: ``aviris4_ch4`` evaluates the solar ephemeris on every access.
     sza = float(unit_absorption.sza)
     vza = float(unit_absorption.vza)
     geometric_amf = path_amf(sza, vza, radiance_leg)

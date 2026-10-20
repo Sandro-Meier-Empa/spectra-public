@@ -56,18 +56,9 @@ def resource_files(root: Path) -> LibRadtranArtsFiles:
 def geometry(
     sza: float, vza: float, elevation: float, altitude: float
 ) -> ViewingGeometry:
-    """Return a geometry; only the four angles and heights reach the model."""
+    """Return a viewing geometry."""
     return ViewingGeometry(
-        sza=sza,
-        saa=0.0,
-        vza=vza,
-        vaa=0.0,
-        surface_elevation=elevation,
-        sensor_altitude=altitude,
-        lat=0.0,
-        lon=0.0,
-        time_utc=np.datetime64("2025-01-01T00:00:00"),
-        platform="airborne",
+        sza=sza, vza=vza, surface_elevation=elevation, sensor_altitude=altitude
     )
 
 
@@ -204,15 +195,15 @@ def test_negative_elevation_is_clamped(synthetic_model, caplog):
 
 
 @pytest.mark.parametrize(
-    ("view", "match"),
+    ("angles", "match"),
     [
-        (geometry(30.0, 5.0, 100.0, float("nan")), "altitude is not finite"),
-        (geometry(95.0, 5.0, 100.0, 4000.0), r"\[0, 90\)"),
+        ((30.0, 5.0, 100.0, float("nan")), "altitude is not finite"),
+        ((95.0, 5.0, 100.0, 4000.0), r"\[0, 90\)"),
     ],
 )
-def test_invalid_geometry_is_rejected(synthetic_model, view, match):
+def test_invalid_geometry_is_rejected(synthetic_model, angles, match):
     with pytest.raises(ContractError, match=match):
-        synthetic_model.lut(SYNTHETIC_BANDS, view, gas="CH4")
+        synthetic_model.lut(SYNTHETIC_BANDS, geometry(*angles), gas="CH4")
 
 
 def test_bands_outside_window_are_rejected(synthetic_model):

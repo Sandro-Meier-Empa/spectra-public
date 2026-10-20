@@ -13,7 +13,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 import xarray as xr
 from scipy import ndimage
 
@@ -60,14 +59,13 @@ def scene_seed(scene_id: str) -> int:
     return int.from_bytes(digest, "big")
 
 
-def _to_datetime64(
-    value: str | datetime | np.datetime64 | pd.Timestamp,
-) -> np.datetime64:
-    """Return a naive UTC ``datetime64[ns]`` from a string, datetime or timestamp."""
-    timestamp = pd.Timestamp(value)
-    if timestamp.tzinfo is not None:
-        timestamp = timestamp.tz_convert("UTC").tz_localize(None)
-    return timestamp.to_datetime64().astype("datetime64[ns]")
+def _to_datetime64(value: str | datetime | np.datetime64) -> np.datetime64:
+    """Return a naive UTC ``datetime64[ns]`` from a string, datetime or datetime64."""
+    if isinstance(value, np.datetime64):
+        return value.astype("datetime64[ns]")
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        value = value.astimezone(UTC).replace(tzinfo=None)
+    return np.datetime64(value, "ns")
 
 
 def _smooth_texture(
@@ -509,57 +507,6 @@ def scene_spatial_coords(scene: xr.Dataset) -> dict[str, xr.DataArray]:
     }
 
 
-def make_unit_absorption_spectrum(
-    wavelengths: npt.ArrayLike,
-    *,
-    peak: float = -5e-5,
-    gas: str = "CH4",
-    lines: tuple[tuple[float, float, float], ...] = _TOY_LINES,
-) -> xr.Dataset:
-    """Return a toy ``UnitAbsorptionSpectrum`` of Gaussian absorption lines.
-
-    Args:
-        wavelengths: Strictly increasing wavelengths in nanometres.
-        peak: Unit absorption of the strongest line in ppm-1 m-1 (negative).
-        gas: Gas name written to the attributes.
-        lines: ``(centre_nm, width_nm, relative_depth)`` per absorption line.
-
-    Returns:
-        Dataset with ``unit_abs_spect(wavelength)`` in ppm-1 m-1.
-
-    Raises:
-        ValueError: If ``peak`` is not negative or the wavelengths are invalid.
-    """
-    grid = np.asarray(wavelengths, dtype=float)
-    if grid.ndim != 1 or grid.size < 2 or np.any(np.diff(grid) <= 0):
-        raise ValueError("wavelengths must be a strictly increasing 1-D array.")
-    if not peak < 0:
-        raise ValueError("peak must be negative: absorption lowers the radiance.")
-    shape = np.zeros_like(grid)
-    for centre, width, depth in lines:
-        shape += depth * np.exp(-0.5 * ((grid - centre) / width) ** 2)
-    spectrum = peak * shape
-    return xr.Dataset(
-        {
-            "unit_abs_spect": (
-                ("wavelength",),
-                spectrum,
-                {
-                    "units": UNIT_ABSORPTION_UNITS,
-                    "long_name": "unit absorption spectrum per vertical path amount",
-                },
-            )
-        },
-        coords={"wavelength": ("wavelength", grid, {"units": "nm"})},
-        attrs={
-            "gas": gas,
-            "provider": "toy",
-            "provider_version": spectra.__version__,
-            "description": f"Toy unit absorption spectrum for {gas}",
-        },
-    )
-
-
 __all__ = [
     "DEFAULT_SCENE_CRS",
     "DEFAULT_SCENE_ORIGIN_XY",
@@ -567,7 +514,6 @@ __all__ = [
     "UNIT_ABSORPTION_UNITS",
     "make_plume_column",
     "make_sensor_scene",
-    "make_unit_absorption_spectrum",
     "scene_pixel_centres",
     "scene_seed",
     "scene_spatial_coords",

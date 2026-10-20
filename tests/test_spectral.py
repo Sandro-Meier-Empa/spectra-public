@@ -9,11 +9,8 @@ import numpy as np
 import pytest
 import xarray as xr
 
-import spectra
 from spectra.spectral import (
-    EMBEDDING_VERSION,
     embed_column_in_radiance,
-    embedding_provenance,
     injected_column,
 )
 
@@ -40,9 +37,7 @@ def assert_same_array(result: xr.DataArray, expected: xr.DataArray) -> None:
     xr.testing.assert_identical(result.load(), expected)
 
 
-@pytest.mark.parametrize("convention", ["vertical", "slant"])
 def test_embed_column_in_radiance_matches_golden(
-    convention,
     golden_radiance,
     golden_column_on_grid,
     golden_lut,
@@ -53,15 +48,13 @@ def test_embed_column_in_radiance_matches_golden(
         golden_radiance["radiance"],
         golden_column_on_grid,
         golden_lut,
-        column_convention=convention,
     )
     expected = load_expected(
-        golden_expected, f"embedded_radiance_{convention}.nc", "radiance"
+        golden_expected, "embedded_radiance_vertical.nc", "radiance"
     )
     assert_same_array(result, expected)
     assert (
-        sha256(result.values)
-        == golden_record["hashes"][f"embedded_radiance_{convention}"]
+        sha256(result.values) == golden_record["hashes"]["embedded_radiance_vertical"]
     )
 
 
@@ -69,9 +62,7 @@ def test_embed_column_in_radiance_dask_matches_golden(
     golden_radiance, golden_column_on_grid, golden_lut, golden_expected
 ):
     radiance = golden_radiance["radiance"].chunk({"across": 8})
-    result = embed_column_in_radiance(
-        radiance, golden_column_on_grid, golden_lut, column_convention="vertical"
-    )
+    result = embed_column_in_radiance(radiance, golden_column_on_grid, golden_lut)
     assert result.chunks is not None
     expected = load_expected(
         golden_expected, "embedded_radiance_vertical.nc", "radiance"
@@ -116,43 +107,11 @@ def test_injected_column_requires_units(golden_column_on_grid):
         injected_column(bare)
 
 
-def test_embedding_provenance_matches_golden(golden_lut, golden_record):
-    attrs = embedding_provenance(
-        method="radiance",
-        geometric_amf=golden_lut.attrs["geometric_air_mass_factor"],
-        lut=golden_lut,
-        column_convention="vertical",
-    )
-    for key, value in golden_record["provenance_radiance"].items():
-        assert key in attrs
-        assert attrs[key] == value
-    assert attrs["embedding_version"] == EMBEDDING_VERSION
-    assert attrs["embedding_spectra_version"] == spectra.__version__
-
-
-def test_embedding_provenance_records_sensor_and_regridder():
-    attrs = embedding_provenance(
-        method="radiance", sensor="aviris4", regridder="polygon"
-    )
-    assert attrs["sensor"] == "aviris4"
-    assert attrs["embedding_regridder"] == "polygon"
-
-
 def test_golden_lut_hash(golden_lut, golden_record):
     assert (
         sha256(golden_lut["optical_depth"].values)
         == golden_record["hashes"]["lut_optical_depth"]
     )
-
-
-def test_invalid_convention_raises(golden_radiance, golden_column_on_grid, golden_lut):
-    with pytest.raises(ValueError, match="column_convention"):
-        embed_column_in_radiance(
-            golden_radiance["radiance"],
-            golden_column_on_grid,
-            golden_lut,
-            column_convention="diagonal",  # type: ignore[arg-type]
-        )
 
 
 def test_mismatched_grid_raises(golden_radiance, golden_column_on_grid, golden_lut):

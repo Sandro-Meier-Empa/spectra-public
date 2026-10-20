@@ -20,8 +20,6 @@ from spectra.geometry.corners import (
 from spectra.geometry.crs import from_lonlat, spatial_ref_coordinate, to_lonlat
 from spectra.geometry.placement import place_column
 from spectra.geometry.swath import anchor_pixel_spacing, swath_polygon
-from spectra.protocols import Regridder
-from spectra.registry import get_regridder
 from spectra.regrid import (
     BucketRegridder,
     PolygonRegridder,
@@ -369,17 +367,6 @@ def test_to_scene_honours_explicit_window():
         PolygonRegridder().to_scene(
             column, scene, placement, window=Window(slice(0, 90), slice(0, 10))
         )
-
-
-def test_registry_exposes_protocol_compliant_regridders():
-    for name in ("polygon", "bucket"):
-        regridder = get_regridder(name)
-        assert isinstance(regridder, Regridder)
-        assert regridder.name == name
-    assert get_regridder("bucket", supersample=2).supersample == 2  # type: ignore[attr-defined]
-    assert get_regridder("polygon", norm="fracarea").norm == "fracarea"  # type: ignore[attr-defined]
-    assert isinstance(PolygonRegridder(), Regridder)
-    assert isinstance(BucketRegridder(), Regridder)
 
 
 def test_invalid_options_and_placements_raise():

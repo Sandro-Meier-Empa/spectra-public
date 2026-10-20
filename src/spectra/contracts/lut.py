@@ -21,26 +21,6 @@ LUT_REQUIRED_ATTRS = (
 )
 
 
-def validate_unit_absorption_spectrum(dataset: xr.Dataset) -> None:
-    """Validate a unit absorption spectrum dataset.
-
-    Raises:
-        ContractError: If ``unit_abs_spect(wavelength)`` is missing or invalid.
-    """
-    if "unit_abs_spect" not in dataset:
-        raise ContractError("Unit absorption spectrum must contain 'unit_abs_spect'.")
-    spectrum = dataset["unit_abs_spect"]
-    if tuple(spectrum.dims) != ("wavelength",):
-        raise ContractError(
-            "'unit_abs_spect' must have the single dimension 'wavelength'."
-        )
-    wavelength = np.asarray(dataset["wavelength"].values, dtype=float)
-    if np.any(np.diff(wavelength) <= 0):
-        raise ContractError("'wavelength' must be strictly increasing.")
-    if not np.all(np.isfinite(spectrum.values)):
-        raise ContractError("'unit_abs_spect' must be finite.")
-
-
 def validate_lut(dataset: xr.Dataset) -> None:
     """Validate an absorption look-up table.
 
@@ -83,5 +63,4 @@ __all__ = [
     "LUT_REQUIRED_ATTRS",
     "LUT_VARIABLES",
     "validate_lut",
-    "validate_unit_absorption_spectrum",
 ]

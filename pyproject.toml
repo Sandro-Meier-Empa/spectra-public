@@ -33,8 +33,6 @@ dependencies = [
   "xarray",
   "dask[array]",
   "netCDF4",
-  "zarr",
-  "pandas",
   "pyproj",
   "shapely>=2",
   "scipy",
@@ -43,10 +41,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Legacy libRadtran/ARTS provider and AVIRIS-4 adapter wrapping aviris4-ch4.
-aviris4 = ["aviris4-ch4"]
-# Validating the plume-column exporter of the MicroHH processing chain.
-microhh = ["microhh-processing-chain"]
 dev = [
   "bump-my-version>=1,<2",
   "h5py",
@@ -60,19 +54,6 @@ dev = [
 
 [project.scripts]
 spectra = "spectra.cli:main"
-
-# Plugin groups. Third-party packages register adapters under the same groups.
-[project.entry-points."spectra.sensors"]
-aviris4 = "spectra.sensors.aviris4:Aviris4Adapter"
-emit = "spectra.sensors.emit:EmitAdapter"
-
-[project.entry-points."spectra.unit_absorption"]
-libradtran_arts = "spectra.spectral.providers.libradtran_arts:LibRadtranArtsProvider"
-toy = "spectra.spectral.providers.toy:ToyUnitAbsorption"
-
-[project.entry-points."spectra.regridders"]
-polygon = "spectra.regrid.polygon:PolygonRegridder"
-bucket = "spectra.regrid.bucket:BucketRegridder"
 
 [project.urls]
 Homepage = "https://gitlab.empa.ch/abt503/users/mesa/spectra"

@@ -69,33 +69,27 @@ class NativeLayout:
 
 @dataclass(frozen=True)
 class ViewingGeometry:
-    """Observation geometry used by unit-absorption providers.
+    """Observation geometry of an absorption table.
 
     Attributes:
         sza: Solar zenith angle in degrees.
-        saa: Solar azimuth angle in degrees, clockwise from north.
         vza: Viewing zenith angle in degrees.
-        vaa: Viewing azimuth angle in degrees, clockwise from north.
         surface_elevation: Surface elevation in metres above sea level.
         sensor_altitude: Sensor altitude in metres above sea level.
-        lat: Reference latitude in degrees.
-        lon: Reference longitude in degrees.
-        time_utc: Reference UTC time.
-        platform: Airborne or spaceborne.
-        h2o_column: Column water vapour in g cm-2, if known.
     """
 
     sza: float
-    saa: float
     vza: float
-    vaa: float
     surface_elevation: float
     sensor_altitude: float
-    lat: float
-    lon: float
-    time_utc: np.datetime64
-    platform: Platform
-    h2o_column: float | None = None
+
+    def __post_init__(self) -> None:
+        """Require finite values."""
+        for name in ("sza", "vza", "surface_elevation", "sensor_altitude"):
+            value = float(getattr(self, name))
+            if not np.isfinite(value):
+                raise ContractError(f"ViewingGeometry.{name} is not finite.")
+            object.__setattr__(self, name, value)
 
     def geometric_amf(self, leg: RadianceLeg = "both") -> float:
         """Return the geometric air-mass factor of the selected photon path."""
@@ -135,25 +129,11 @@ class ViewingGeometry:
             centre = tuple(size // 2 for size in values.shape)
             return float(values[centre])
 
-        time = subset["time"]
-        time_values = np.asarray(time.values).reshape(-1)
-        finite = time_values[~np.isnat(time_values)]
-        if finite.size == 0:
-            raise ContractError("Scene time coordinate contains no valid value.")
-        reference_time = finite[finite.size // 2]
-        h2o = reduce("h2o_column") if "h2o_column" in subset else None
         return cls(
             sza=reduce("sza"),
-            saa=reduce("saa"),
             vza=reduce("vza"),
-            vaa=reduce("vaa"),
             surface_elevation=reduce("surface_elevation"),
             sensor_altitude=reduce("sensor_altitude"),
-            lat=reduce("lat"),
-            lon=reduce("lon"),
-            time_utc=np.datetime64(reference_time),
-            platform=str(scene.attrs["platform"]),  # type: ignore[arg-type]
-            h2o_column=h2o,
         )
 
 
