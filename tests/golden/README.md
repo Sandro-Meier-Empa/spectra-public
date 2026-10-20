@@ -13,7 +13,7 @@ package.
   `6980:7140`, bands 2080-2500 nm every 2nd band.
 - MicroHH case: `pau_controlled_release.20240918_133000_290kgh_15min_v2_release`, snapshot index 120
   (t = 6000.0 s), cells x `512:542`, y `505:517` at 1 m.
-- Absorption table: libRadtran/ARTS resources in `/capstor/store/cscs/c2sm/amrs/ARES/data-unit-abs-spec`;
+- Absorption table: the libRadtran/ARTS resource bundle `data-unit-abs-spec`;
   sza 41.421 deg, altitude 1058 m, elevation 95 m,
   8 log-spaced nodes 0.01-200 ppm.
 

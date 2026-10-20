@@ -1,0 +1,29 @@
+# Embed two plumes into one AVIRIS-3 L1B scene (see docs/run-file.md).
+sensor: aviris3
+files:
+  radiance: /path/to/AV320231006t181013_005_L1B_RDN_cbeae6f8_RDN.nc
+  obs: /path/to/AV320231006t181013_005_L1B_ORT_3b50f254_OBS.nc
+output: /path/to/out/AV320231006t181013_005_L1B_RDN_embedded.nc
+seed: 2023
+forward_model:
+  solar_reference: /path/to/data-unit-abs-spec/spectrum/hybrid_reference_spectrum_p005nm_resolution_c2021-03-04_with_unc.nc
+  tau:
+    all: /path/to/data-unit-abs-spec/spectrum/UVSPEC_moltau_midlatitude-summer_all_1000-2500nm-0.001nm.nc
+    CH4: /path/to/data-unit-abs-spec/spectrum/UVSPEC_moltau_midlatitude-summer_CH4_1000-2500nm-0.001nm.nc
+  profiles:
+    z: /path/to/data-unit-abs-spec/arts/midlatitude-summer/midlatitude-summer.z.xml
+    t: /path/to/data-unit-abs-spec/arts/midlatitude-summer/midlatitude-summer.t.xml
+    CH4: /path/to/data-unit-abs-spec/arts/midlatitude-summer/midlatitude-summer.CH4.xml
+  backgrounds: {CH4: 1.93}
+  scenario: midlatitude-summer
+  enhancement_max_ppm: 2000 # metre-scale pixels resolve strong plume cores
+plumes:
+  # Emission source exactly at a well pad.
+  - file: /path/to/plumes/case_a.plumecolumn.nc
+    time_index: 120
+    anchor: {lon: -104.04, lat: 32.02}
+    rotation: 30
+  # Anywhere in the scene, fully inside the swath.
+  - file: /path/to/plumes/case_b.plumecolumn.nc
+    time_index: 60
+    anchor: random

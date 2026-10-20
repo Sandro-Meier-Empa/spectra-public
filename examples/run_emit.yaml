@@ -1,0 +1,34 @@
+# Embed three plumes into one EMIT L1B granule (see docs/run-file.md).
+sensor: emit
+files:
+  radiance: /path/to/EMIT_L1B_RAD_001_20260819T180247_2623112_032.nc
+  obs: /path/to/EMIT_L1B_OBS_001_20260819T180247_2623112_032.nc
+output: /path/to/out/EMIT_L1B_RAD_001_20260819T180247_2623112_032_embedded.nc
+seed: 2026
+forward_model:
+  solar_reference: /path/to/data-unit-abs-spec/spectrum/hybrid_reference_spectrum_p005nm_resolution_c2021-03-04_with_unc.nc
+  tau:
+    all: /path/to/data-unit-abs-spec/spectrum/UVSPEC_moltau_midlatitude-summer_all_1000-2500nm-0.001nm.nc
+    CH4: /path/to/data-unit-abs-spec/spectrum/UVSPEC_moltau_midlatitude-summer_CH4_1000-2500nm-0.001nm.nc
+  profiles:
+    z: /path/to/data-unit-abs-spec/arts/midlatitude-summer/midlatitude-summer.z.xml
+    t: /path/to/data-unit-abs-spec/arts/midlatitude-summer/midlatitude-summer.t.xml
+    CH4: /path/to/data-unit-abs-spec/arts/midlatitude-summer/midlatitude-summer.CH4.xml
+  backgrounds: {CH4: 1.93}
+  scenario: midlatitude-summer
+plumes:
+  # Emission source exactly at a facility.
+  - file: /path/to/plumes/case_a.plumecolumn.nc
+    time_index: 120
+    anchor: {lon: -102.9, lat: 32.1}
+    rotation: 30
+  # A second plume next to it; overlapping plumes are attenuated together.
+  - file: /path/to/plumes/case_b.plumecolumn.nc
+    time_index: 90
+    anchor: {along: 600, across: 610}
+    flip: x
+    emission_scale: 0.5
+  # Anywhere in the granule, fully inside the swath.
+  - file: /path/to/plumes/case_b.plumecolumn.nc
+    time_index: 60
+    anchor: random

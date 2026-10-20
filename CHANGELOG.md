@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+SPECTRA is now embed-only: it imports a scene's native files, embeds N LES
+plumes with Lambert-Beer attenuation and writes the attenuated radiance back
+in the input's native format with the embedding metadata. Version 0.1.0
+(tag `v0.1.0`) is the last release with the matched filter and the prism
+dataset generation.
+
+### Added
+
+- `spectra.embed(run)` and `spectra embed run.yaml [--dry-run]`: one run file
+  (sensor, scene files by role, output, seed, forward-model resource files by
+  role, plumes) embeds N plumes into one scene. `spectra sensors` lists the
+  file roles.
+- Copy-and-patch export (`spectra.export.native`): the output is a byte copy
+  of the native radiance file in which only the plume pixels of the
+  attenuated bands change; a `source` dimension carries
+  `injected_<gas>_mass` and per-plume `source_*` provenance, and `spectra_*`
+  attributes hold the run provenance including the resolved run file
+  (`spectra_run_config`), which reproduces the output.
+- EMIT L1B adapter (`emit`, RAD + OBS) and AVIRIS-3 L1B adapter (`aviris3`,
+  ORNL DAAC RDN + OBS granules, radiance in the `radiance` group, CRS from
+  the granule's grid mapping).
+- Geographic anchors (`{lon, lat}`) placed at the exact projected position,
+  and the emission source as anchor point (`corner: source`, the default).
+- Plumes with overlapping windows form clusters that are attenuated together
+  with one absorption table at their median geometry.
+- libRadtran/ARTS forward model ported from `aviris4_ch4.mf.UnitAbsorption`
+  (`spectra.spectral.libradtran`), bit-identical to the original on AVIRIS-4
+  and EMIT band sets, with explicit resource files, shared resource arrays
+  and memoised intermediates.
+- `spectra.testing.native`: schema-exact synthetic AVIRIS-3, AVIRIS-4 and
+  EMIT files and HDF5-level comparison; `run_adapter_conformance(adapter,
+  files)`.
+
+### Changed
+
+- The forward model takes the solar zenith angle from the scene (AVIRIS-4
+  `cast_shadow`, AVIRIS-3 and EMIT OBS) instead of an ephemeris, so
+  AVIRIS-4 tables differ slightly from v0.1.0 where the two disagreed.
+- Surface elevations below sea level are treated as 0 m in the forward model
+  (the original selected the top layer as surface layer there).
+- Sensor adapters take `open_scene(files)` with every file given by role and
+  declare a `NativeLayout`; the AVIRIS-4 adapter reads radiance and metadata
+  only, requires a scalar `time` and the `cast_shadow` solar angles, reads the
+  newer chunked converter output too, and keeps radiance in native units.
+- Swath outlines that cross themselves at folded edges are repaired instead of
+  rejected.
+- Plume-column validation reduces chunked files lazily; plume files are
+  NetCDF only.
+
+### Removed
+
+- Matched filter and retrievers, column products and product embedding,
+  prism/column-product/radiance exporters and pairings, scene catalogue and
+  QA, recipe-driven generation, finalize and Slurm.
+- CDO and bucket regridders (the exact polygon regridder is within a factor
+  of two of bucket on large plumes), map-grid regridding, scene tables,
+  `SceneRecord`, the toy adapter, quality masks and background groups.
+- The entry-point plugin registry, unit-absorption providers, the slant
+  column convention, plume mirroring/rescaling/wind transforms, the AVIRIS-4
+  file-name time fallback, and the `aviris4`, `emit`, `prism`, `slurm` and
+  `microhh` extras; `aviris4_ch4`, pyarrow, zarr and pandas are no longer
+  dependencies.
+
 ## 2026-10-14
 
 ### Added
