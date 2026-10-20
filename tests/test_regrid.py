@@ -1,4 +1,4 @@
-"""Tests of the polygon-overlap and bucket conservative regridders."""
+"""Tests of the polygon-overlap conservative regridder."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from spectra.geometry.crs import from_lonlat, spatial_ref_coordinate, to_lonlat
 from spectra.geometry.placement import place_column
 from spectra.geometry.swath import anchor_pixel_spacing, swath_polygon
 from spectra.regrid import (
-    BucketRegridder,
     PolygonRegridder,
     RegridResult,
     regrid_polygons,
@@ -35,11 +34,9 @@ from spectra.types import ANCHOR_CORNERS, Placement, SceneGeometry, Window
 CRS = pyproj.CRS.from_epsg(32632)
 ORIGIN = (500000.0, 5200000.0)
 
-# Relative mass tolerances. Both methods conserve mass to rounding when the
-# support lies inside the window: the polygon method by construction, the
-# bucket method because every sub-cell is binned (measured <= 1e-14).
+# Relative mass tolerance: the polygon overlap conserves mass to rounding when
+# the support lies inside the window.
 POLYGON_RTOL = 1e-9
-BUCKET_RTOL = 1e-12
 
 ROTATIONS = (0, 37, 90, 270, -20)
 FLIPS = ("none", "x", "y")
@@ -49,10 +46,7 @@ CASES = {
     "refine_20m_to_5m": ((20, 12, 20.0, 20.0), (5.0, 5.0), (200, 200)),
     "anisotropic_1m_to_0.6x0.35m": ((40, 24, 1.0, 1.0), (0.6, 0.35), (200, 300)),
 }
-REGRIDDERS = {
-    "polygon": (PolygonRegridder(), POLYGON_RTOL),
-    "bucket": (BucketRegridder(supersample=8), BUCKET_RTOL),
-}
+REGRIDDERS = {"polygon": (PolygonRegridder(), POLYGON_RTOL)}
 
 
 def make_geometry(
@@ -307,29 +301,13 @@ def test_partial_support_outside_scene(method):
     assert result.data.attrs["window_across_stop"] == 40
     assert result.data.attrs["window_along_stop"] == 40
     reference = PolygonRegridder().regrid_to_scene(column, scene, placement)
-    # The bucket classifies sub-cells of 0.25 m; the polygon overlap is exact.
     assert result.source_mass_inside == pytest.approx(
-        reference.source_mass_inside, rel=5e-3
+        reference.source_mass_inside, rel=1e-12
     )
     fracarea = PolygonRegridder(norm="fracarea").regrid_to_scene(
         column, scene, placement
     )
     assert fracarea.target_mass >= reference.target_mass
-
-
-def test_polygon_and_bucket_agree_per_pixel():
-    scene = make_scene(80, 80, 10.0, 10.0)
-    column = make_column(100, 60, 2.0, 2.0, "gaussian")
-    placement = Placement(anchor_along=40, anchor_across=40, rotation_deg=37, flip="y")
-    polygon = PolygonRegridder().regrid_to_scene(column, scene, placement)
-    window = Window.from_attrs(polygon.data.attrs)
-    bucket = BucketRegridder(supersample=8).regrid_to_scene(
-        column, scene, placement, window=window
-    )
-    assert bucket.data.shape == polygon.data.shape
-    difference = np.abs(bucket.data.values - polygon.data.values).max()
-    assert difference / polygon.data.values.max() < 0.02
-    assert bucket.target_mass == pytest.approx(polygon.target_mass, rel=1e-12)
 
 
 @pytest.mark.parametrize("method", list(REGRIDDERS))
@@ -376,14 +354,12 @@ def test_invalid_options_and_placements_raise():
         PolygonRegridder(engine="gpu")  # type: ignore[arg-type]
     with pytest.raises(ContractError):
         PolygonRegridder(rtol=-1.0)
-    with pytest.raises(ContractError):
-        BucketRegridder(supersample=0)
     scene = make_scene(20, 20, 10.0, 10.0)
     column = make_column(10, 6, 2.0, 2.0, "ones")
     with pytest.raises(ContractError, match="outside"):
         PolygonRegridder().to_scene(column, scene, Placement(anchor_along=20))
     with pytest.raises(ContractError, match="outside"):
-        BucketRegridder().to_scene(column, scene, Placement(anchor_across=25))
+        PolygonRegridder().to_scene(column, scene, Placement(anchor_across=25))
     nan_scene = scene.copy(deep=True)
     nan_scene["x"][3, 3] = np.nan
     with pytest.raises(ContractError, match="finite"):
