@@ -406,6 +406,8 @@ class UnitAbsorption:
         backgrounds: Background column-averaged dry-air mole fractions in ppm.
         rho: Lambertian surface albedo of the radiance model.
         scenario: Scenario label recorded in the absorption table.
+        warn_truncated: Whether to warn about bands whose slit function the
+            modelled window truncates.
     """
 
     def __init__(
@@ -422,6 +424,7 @@ class UnitAbsorption:
         backgrounds: Mapping[str, float],
         rho: float = 1.0,
         scenario: str | None = None,
+        warn_truncated: bool = True,
     ) -> None:
         """Validate the geometry and load the solar reference spectrum."""
         self.gas = gas.upper()
@@ -463,20 +466,24 @@ class UnitAbsorption:
         self.w0, self.E0 = resources.solar()
         self._optical_depths: tuple[np.ndarray, np.ndarray] | None = None
         self._radiance: dict[tuple[float, str], np.ndarray] = {}
-        self._validate_spectral_coverage()
+        self._validate_spectral_coverage(warn_truncated)
 
     @property
     def elevation_clamped(self) -> bool:
         """Whether the input elevation was clamped to 0 m."""
         return self.elevation_input < 0
 
-    def _validate_spectral_coverage(self) -> None:
+    def _validate_spectral_coverage(self, warn_truncated: bool) -> None:
         """Check that every sensor band is supported by the modelled window.
 
         The solar reference spectrum and the libRadtran optical depths only
         cover ``wmin`` to ``wmax``. A band whose slit function falls outside
         that window convolves to zero radiance, which turns the unit absorption
         spectrum into ``NaN`` through ``log(0)``.
+
+        Args:
+            warn_truncated: Whether to warn about bands only partly inside the
+                window.
 
         Raises:
             ContractError: If any band lies essentially outside the window.
@@ -510,15 +517,14 @@ class UnitAbsorption:
             )
 
         truncated = coverage < _FULL_SLIT_COVERAGE
-        if np.any(truncated):
+        if warn_truncated and np.any(truncated):
             bands = cw[truncated]
             logger.warning(
-                "%d sensor bands (%.1f-%.1f nm) sit on the edge of the %s-%s nm "
-                "window; their slit function is truncated and the unit absorption "
+                "%d sensor bands at %s nm sit on the edge of the %s-%s nm window; "
+                "their slit function is truncated and the unit absorption "
                 "spectrum is biased there.",
                 bands.size,
-                bands.min(),
-                bands.max(),
+                ", ".join(f"{band:.1f}" for band in bands),
                 self.wmin,
                 self.wmax,
             )
@@ -867,6 +873,8 @@ class LibRadtranArts:
             config.files, wmin=config.wmin, wmax=config.wmax
         )
         self._models: dict[tuple[Any, ...], UnitAbsorption] = {}
+        # Band sets already warned about: one warning per run, not per cluster.
+        self._coverage_warned: set[tuple[bytes, bytes]] = set()
 
     @property
     def spectral_range_nm(self) -> tuple[float, float]:
@@ -924,6 +932,7 @@ class LibRadtranArts:
         )
         model = self._models.get(key)
         if model is None:
+            bands = (response.wavelength.tobytes(), response.fwhm.tobytes())
             model = UnitAbsorption(
                 gas,
                 sza=float(geometry.sza),
@@ -936,7 +945,9 @@ class LibRadtranArts:
                 backgrounds=self.config.backgrounds,
                 rho=self.config.rho,
                 scenario=self.config.scenario,
+                warn_truncated=bands not in self._coverage_warned,
             )
+            self._coverage_warned.add(bands)
             self._models[key] = model
         return model
 

@@ -206,6 +206,24 @@ def test_invalid_geometry_is_rejected(synthetic_model, angles, match):
         synthetic_model.lut(SYNTHETIC_BANDS, geometry(*angles), gas="CH4")
 
 
+def test_edge_warning_once_per_band_set(synthetic_model, caplog):
+    # Bands at both ends of the 2290-2310 nm window have truncated slits.
+    edges = SpectralResponse(
+        wavelength=np.array([2290.5, 2300.0, 2309.5]), fwhm=np.full(3, 2.0)
+    )
+    with caplog.at_level("WARNING", logger="spectra.spectral.libradtran"):
+        synthetic_model.lut(edges, geometry(30.0, 5.0, 100.0, 4000.0), gas="CH4")
+        synthetic_model.lut(edges, geometry(40.0, 8.0, 200.0, 4000.0), gas="CH4")
+    warnings = [r.getMessage() for r in caplog.records if "edge" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "2 sensor bands at 2290.5, 2309.5 nm" in warnings[0]
+    caplog.clear()
+    other = SpectralResponse(wavelength=np.array([2290.5, 2300.0]), fwhm=np.ones(2))
+    with caplog.at_level("WARNING", logger="spectra.spectral.libradtran"):
+        synthetic_model.lut(other, geometry(30.0, 5.0, 100.0, 4000.0), gas="CH4")
+    assert "1 sensor bands at 2290.5 nm" in caplog.text
+
+
 def test_bands_outside_window_are_rejected(synthetic_model):
     bands = SpectralResponse(wavelength=np.array([2200.0, 2300.0]), fwhm=np.ones(2))
     with pytest.raises(ContractError, match="outside the modelled"):

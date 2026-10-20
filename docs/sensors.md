@@ -119,9 +119,9 @@ through `LAYOUT`.
 
 ## Large files
 
-- Outputs are byte copies (AVIRIS-4 lines are 5-82 GB); the copy goes to a
-  hidden staging file next to the output and is moved into place when
-  complete. On Lustre, a striped output directory speeds up large copies
+- Outputs are byte copies (AVIRIS-4 lines reach several hundred GB); the
+  copy goes to a hidden staging file next to the output and is moved into
+  place when complete. On Lustre, a striped output directory speeds up large copies
   (for example `lfs setstripe -c 4 /path/to/out`).
 - On NFSv3 file systems HDF5 file locking can fail when the copy is opened
   for writing; set `HDF5_USE_FILE_LOCKING=FALSE` in that case.
