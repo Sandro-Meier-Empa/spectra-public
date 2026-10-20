@@ -15,9 +15,11 @@ keywords = [
   "plume",
   "large-eddy simulation",
   "hyperspectral",
+  "imaging spectroscopy",
   "remote-sensing",
   "synthetic data",
-  "machine learning",
+  "EMIT",
+  "AVIRIS",
 ]
 
 classifiers = [
@@ -86,15 +88,14 @@ minversion = "8"
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
-  "golden: compares against the recorded aviris4-ch4 golden fixture",
+  "golden: compares against the recorded golden fixtures in tests/golden",
   "resources: needs the libRadtran/ARTS resources (SPECTRA_TEST_RESOURCES)",
-  "data: needs real scene data (SPECTRA_TEST_DATA)",
+  "data: needs real scene files (SPECTRA_TEST_<SENSOR>_FILES, SPECTRA_TEST_DATA)",
 ]
 
 [tool.pyright]
 include = ["src", "scripts", "tests"]
 exclude = [
-  "scripts/archive",
   "**/node_modules",
   "**/__pycache__",
   "**/.*",
@@ -105,7 +106,6 @@ typeCheckingMode = "standard"
 [tool.ruff]
 target-version = "py311"
 line-length = 88
-exclude = ["**/archive"]
 
 [tool.ruff.lint]
 select = [

@@ -1,10 +1,11 @@
 # Golden fixture
 
-Reference outputs of the **current `aviris4_ch4` code** on small crops of real data,
-recorded by `scripts/archive/build_golden_fixture.py` (run against aviris4-ch4
-commit `2b1d8c5`, the last one carrying the migrated code). SPECTRA's ports are tested against
-these files for byte-identical results. Rebuild only when the reference has to
-change, and record why in the CHANGELOG.
+Reference outputs of the **`aviris4_ch4` code SPECTRA was ported from**, on
+small crops of real data, recorded by `scripts/golden/build_golden_fixture.py`
+(run against aviris4-ch4 commit `2b1d8c5`, the last one carrying the migrated
+code). SPECTRA is tested against these files for byte-identical results. The
+fixture is frozen: the code that produced it no longer exists in either
+package.
 
 - Built (UTC): `2026-10-14T00:13:12.407563+00:00` with `aviris4_ch4 1.1.1.dev13+gd28d8d547`.
 - Flight line: `M014_240916_FRA_Pau_Methane_3000ft_Line_0001_133313_000_rdn.nc` (ARES 2024 Pau campaign),
@@ -25,7 +26,8 @@ change, and record why in the CHANGELOG.
 | `inputs/microhh_raw.nc` | MicroHH `ch4_path` snapshot crop (12 x 30 cells, no attrs) |
 | `inputs/lut.nc`, `inputs/target_10ppm.nc` | Real absorption table and 10 ppm unit absorption spectrum |
 | `inputs/column_on_grid.nc` | Synthetic Gaussian column on the radiance grid (kg m-2) |
-| `expected/embedded_radiance_{vertical,slant}.nc` | `embed_column_in_radiance` outputs |
+| `expected/embedded_radiance_vertical.nc` | `embed_column_in_radiance` output |
+| `expected/embedded_rot_window.nc` | v0.1.0 single-plume pipeline (`place_and_regrid` + `embed_radiance_sample`) on the crop with placement `rot` and `inputs/lut.nc`; the current pipeline must reproduce it (`tests/test_equivalence.py`) |
 | `expected/injected_ch4_mass.nc` | `injected_column` output |
 | `record.json` | Inputs, placement results, provenance attributes and SHA-256 digests |
 

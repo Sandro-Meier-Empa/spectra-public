@@ -25,9 +25,9 @@ OUTPUT_ENV = "SPECTRA_TEST_OUTPUT_DIR"  # where real-data outputs may be written
 
 
 def require_golden() -> None:
-    """Skip when the golden fixture has not been built."""
+    """Fail when the committed golden fixture is missing."""
     if not (GOLDEN / "record.json").exists():
-        pytest.skip("golden fixture missing; see tests/golden/README.md")
+        pytest.fail("golden fixture missing; see tests/golden/README.md")
 
 
 def env_path(name: str) -> Path:
