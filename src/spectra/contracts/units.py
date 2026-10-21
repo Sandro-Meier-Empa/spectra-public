@@ -1,4 +1,4 @@
-"""Column units: canonical spellings and ``ucat`` conversions.
+"""Column units: canonical spellings and :mod:`ucat` conversions.
 
 Columns are stored in ``kg m-2``; plume columns and absorption tables may use
 ``ppm-m``.
@@ -40,9 +40,9 @@ def convert_column_units(
     gas: str,
     from_unit: str | None = None,
 ) -> xr.DataArray:
-    """Convert a column between units with ``ucat``.
+    """Convert a column between units with :mod:`ucat`.
 
-    ``ucat.convert_columns`` validates the ``units`` attribute of labelled
+    :func:`ucat.convert_columns` validates the ``units`` attribute of labelled
     arrays against an internally derived unit and rejects correctly labelled
     ``kg m-2`` arrays, so the attribute is stripped before the call and the
     result is relabelled with the canonical spelling of ``to_unit``.
@@ -50,7 +50,7 @@ def convert_column_units(
     Args:
         column: Column array.
         to_unit: Target unit, e.g. ``"kg m-2"`` or ``"ppm-m"``.
-        gas: Gas name or molar mass accepted by ``ucat``.
+        gas: Gas name or molar mass accepted by :mod:`ucat`.
         from_unit: Input unit; defaults to the ``units`` attribute.
 
     Returns:

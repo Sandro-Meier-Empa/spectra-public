@@ -55,7 +55,7 @@ def plume_gas(datasets: Mapping[Path, xr.Dataset]) -> str:
     """Return the lower-case gas shared by every plume of a run.
 
     Raises:
-        ContractError: If the plumes carry different gases.
+        :exc:`ContractError`: If the plumes carry different gases.
     """
     gases = {str(dataset.attrs["gas"]).lower() for dataset in datasets.values()}
     if len(gases) != 1:
@@ -178,7 +178,7 @@ def attenuated_bands(
     """Return the contiguous scene bands whose centres lie in the model range.
 
     Raises:
-        ContractError: If no band lies in the range.
+        :exc:`ContractError`: If no band lies in the range.
     """
     wavelength = np.asarray(scene["wavelength"].values, dtype=float)
     lower, upper = spectral_range_nm
@@ -289,7 +289,7 @@ def embed_scene(
         The embedding result and the plumes with drawn anchors filled in.
 
     Raises:
-        ContractError: If plumes, anchors or the forward model are invalid.
+        :exc:`ContractError`: If plumes, anchors or the forward model are invalid.
     """
     datasets = dict(datasets) if datasets is not None else open_plumes(plumes)
     gas = plume_gas(datasets)

@@ -1,6 +1,6 @@
 """Sensor adapters: native files in, ``SensorScene`` out.
 
-``SENSORS`` maps the names accepted in run files to the built-in adapters;
+:data:`SENSORS` maps the names accepted in run files to the built-in adapters;
 :func:`get_sensor` also accepts any object satisfying
 :class:`spectra.protocols.SensorAdapter`.
 """
@@ -25,7 +25,7 @@ def get_sensor(sensor: str | SensorAdapter) -> SensorAdapter:
     """Return the adapter named ``sensor`` or the given adapter object.
 
     Raises:
-        ContractError: If the name is unknown or the object is no adapter.
+        :exc:`ContractError`: If the name is unknown or the object is no adapter.
     """
     if isinstance(sensor, str):
         if sensor not in SENSORS:

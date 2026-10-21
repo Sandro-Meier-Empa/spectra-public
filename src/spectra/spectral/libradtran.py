@@ -81,7 +81,7 @@ class LibRadtranArtsFiles:
         """Return every file the model needs for ``gas`` and ``backgrounds``.
 
         Raises:
-            ContractError: If a role is missing.
+            :exc:`ContractError`: If a role is missing.
         """
         gas = gas.upper()
         gases = sorted({gas, *backgrounds})
@@ -486,7 +486,7 @@ class UnitAbsorption:
                 window.
 
         Raises:
-            ContractError: If any band lies essentially outside the window.
+            :exc:`ContractError`: If any band lies essentially outside the window.
         """
         cw = np.atleast_1d(np.asarray(self.cw, dtype=float))
 
@@ -533,7 +533,7 @@ class UnitAbsorption:
         """Reject radiance spectra that make the logarithm undefined.
 
         Raises:
-            ContractError: If any band is non-finite or not strictly positive.
+            :exc:`ContractError`: If any band is non-finite or not strictly positive.
         """
         cw = np.atleast_1d(np.asarray(self.cw, dtype=float))
         invalid = np.zeros(cw.shape, dtype=bool)
@@ -594,7 +594,7 @@ class UnitAbsorption:
             Dataset with ``unit_abs_spect(wavelength)`` in ppm-1 m-1.
 
         Raises:
-            ContractError: If the modelled radiance is not strictly positive.
+            :exc:`ContractError`: If the modelled radiance is not strictly positive.
         """
         scaling_factor = self.enhancement_to_scaling_factor(enhancement)
 
@@ -898,7 +898,7 @@ class LibRadtranArts:
         """Validate that every resource needed for ``gas`` is configured and exists.
 
         Raises:
-            ContractError: If a background or a resource file is missing.
+            :exc:`ContractError`: If a background or a resource file is missing.
         """
         gas = gas.upper()
         if gas not in BACKGROUND_GASES:

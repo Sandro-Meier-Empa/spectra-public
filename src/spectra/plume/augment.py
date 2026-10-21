@@ -31,7 +31,7 @@ def column_below_altitude(
         ``altitude_method`` recorded.
 
     Raises:
-        ContractError: If partial columns are absent, ``altitude_m`` lies below
+        :exc:`ContractError`: If partial columns are absent, ``altitude_m`` lies below
             the lowest tabulated altitude or ``method`` is unknown.
     """
     if "column_below_altitude" not in dataset:

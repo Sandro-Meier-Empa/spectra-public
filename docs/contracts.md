@@ -7,8 +7,8 @@ names are part of the contracts.
 ## `PlumeColumn` (LES chain -> SPECTRA)
 
 One file = one LES case x one tracer x one source. Producer:
-`microhh_processing_chain.export.export_plume_column`. Plume files are
-NetCDF.
+`microhh_processing_chain.export.export_plume_column`, walked through in
+`notebooks/microhh_plume_column.ipynb`. Plume files are NetCDF.
 
 | Item | Spec |
 |---|---|
@@ -16,8 +16,8 @@ NetCDF.
 | coords | `x`, `y`: 1-D uniform cell centres in m (model frame); `time`: datetime64 UTC; `simulation_time(time)`: s since LES start |
 | `column(time, y, x)` | float `kg m-2`, finite, >= 0, zeros outside the plume |
 | `emission_rate(time)` | `kg s-1` |
-| optional | `column_below_altitude(time, altitude, y, x)`, `concentration(time, z, y, x)` `kg m-3`, `wind_u`/`wind_v` (`m s-1`) |
-| attrs | `gas`, `les_model`, `case_id`, `tracer`, `source_id`, `source_x/y/z` (model frame, m), `emission_rate_units="kg s-1"`, `dx`, `dy`, `reference_time`, `column_convention="vertical"` |
+| optional | `column_below_altitude(time, altitude, y, x)`, `concentration(time, z, y, x)` `kg m-3`, `wind_u`/`wind_v` [`m s-1`] |
+| attrs | `gas`, `les_model`, `case_id`, `tracer`, `source_id`, `source_x/y/z` [m, model frame], `emission_rate_units="kg s-1"`, `dx`, `dy`, `reference_time`, `column_convention="vertical"` |
 
 Helpers: `validate_plume_column` (lazy for chunked files), `select_time`,
 `scale_emission`, `plume_support_bounds`; partial columns in
@@ -33,7 +33,7 @@ Sensor geometry, dims `(across, along, band)`.
 |---|---|
 | coords | `wavelength(band)`, `fwhm(band)` nm; `lat`, `lon`, `x`, `y` on `(across, along)`; `spatial_ref` (CF grid mapping, projected metre CRS); `time` scalar or `(along)` |
 | `radiance` | `(across, along, band)`, dask-backed, **native units** (a `units` attribute is required; Lambert-Beer only multiplies the radiance with a transmittance) |
-| geometry | `sza`, `saa`, `vza`, `vaa` (scalar or 2-D, degrees), `surface_elevation`, `sensor_altitude` (m ASL) |
+| geometry | `sza`, `saa`, `vza`, `vaa` (scalar or 2-D) [degrees], `surface_elevation`, `sensor_altitude` [m ASL] |
 | `valid` | bool on `(across, along)` |
 | `pixel_area` | m2 on `(across, along)` |
 | attrs | `sensor`, `platform` (`airborne`/`spaceborne`), `scene_id`, `acquisition_time`, `geometry_space="sensor"` |
@@ -84,7 +84,7 @@ HDF5 1.14 when a file is reopened while another handle to it is open.
 
 Output of `spectra.spectral.build_slant_absorption_lut`: `unit_abs_spect`,
 `sigma_slant`, `optical_depth` on `(enhancement, wavelength)` with
-`vertical_amount` and `slant_amount` (ppm-m) coordinates and the geometry
+`vertical_amount` and `slant_amount` [ppm-m] coordinates and the geometry
 attributes (`sza`, `vza`, `geometric_air_mass_factor`, `layer_height`,
 `effective_layer_height`, ...). The forward model
 (`spectra.spectral.libradtran.LibRadtranArts`, or `ToyForwardModel` in tests)

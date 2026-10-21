@@ -62,7 +62,7 @@ def _nonnegative_column(
 ) -> xr.DataArray:
     """Return a column in ``to_unit`` with gaps zeroed and negatives clipped.
 
-    The ``ucat`` call is kept exactly as in ``aviris4_ch4`` because the golden
+    The :mod:`ucat` call is kept exactly as in ``aviris4_ch4`` because the golden
     oracle was produced with it.
     """
     converted = cast(

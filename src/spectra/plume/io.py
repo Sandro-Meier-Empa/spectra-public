@@ -34,7 +34,8 @@ def open_plume_column(
 
     Raises:
         FileNotFoundError: If ``uri`` does not exist.
-        ContractError: If the stored dataset violates the contract.
+        :exc:`~spectra.contracts.errors.ContractError`: If the stored dataset
+            violates the contract.
     """
     path = Path(uri)
     if not path.exists():
@@ -91,7 +92,8 @@ def write_plume_column(
 
     Raises:
         FileExistsError: If ``path`` exists and ``overwrite`` is false.
-        ContractError: If the dataset violates the contract.
+        :exc:`~spectra.contracts.errors.ContractError`: If the dataset violates
+            the contract.
     """
     target = Path(path)
     if target.exists() and not overwrite:

@@ -89,7 +89,8 @@ truth = embedded["injected_ch4_mass"].sum("source")   # kg m-2, native dims
 `spectra.embed_scene(scene, plumes, forward_model, seed=...)` returns the
 in-memory result; `result.to_dataset(scene)` gives the embedded scene without
 writing a file. The notebooks in `notebooks/` walk through AVIRIS-3, AVIRIS-4
-and EMIT.
+and EMIT; `notebooks/microhh_plume_column.ipynb` makes a plume-column file
+from MicroHH output.
 
 ## Documentation
 

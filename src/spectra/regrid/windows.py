@@ -47,7 +47,7 @@ def anchor_pixel_centre(
     the centre of the anchor pixel.
 
     Raises:
-        ContractError: If the anchor index lies outside the scene or the pixel
+        :exc:`ContractError`: If the anchor index lies outside the scene or the pixel
             centre is not finite.
     """
     n_across, n_along = geometry.shape
@@ -101,7 +101,7 @@ def support_window(
         Index window on the sensor grid.
 
     Raises:
-        ContractError: If the support does not overlap the scene or no pixel
+        :exc:`ContractError`: If the support does not overlap the scene or no pixel
             centre qualifies.
     """
     if margin_px < 0:

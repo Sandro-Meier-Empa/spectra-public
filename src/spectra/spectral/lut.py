@@ -4,8 +4,8 @@ Ported from ``aviris4_ch4.embedding.build_slant_absorption_lut``; the table
 layout, attributes and arithmetic are unchanged so that tables built from the
 same forward model are identical. The forward model is any object satisfying
 :class:`UnitAbsorptionModel`, for example ``aviris4_ch4.mf.UnitAbsorption``
-or the adapter returned by
-:func:`spectra.spectral.providers.base.model_from_provider`.
+or the model returned by
+:meth:`~spectra.spectral.libradtran.LibRadtranArts.model`.
 """
 
 from __future__ import annotations
@@ -92,7 +92,8 @@ def build_slant_absorption_lut(
 
     Raises:
         ValueError: If the nodes or radiance leg are invalid.
-        ContractError: If the model produced a table violating the contract.
+        :exc:`~spectra.contracts.errors.ContractError`: If the model produced a
+            table violating the contract.
     """
     nodes = np.atleast_1d(np.asarray(enhancements, dtype=float))
     if nodes.ndim != 1 or nodes.size == 0:

@@ -25,7 +25,7 @@ def validate_lut(dataset: xr.Dataset) -> None:
     """Validate an absorption look-up table.
 
     Raises:
-        ContractError: If variables, coordinates or attributes are missing or
+        :exc:`ContractError`: If variables, coordinates or attributes are missing or
             inconsistent.
     """
     for name in LUT_VARIABLES:

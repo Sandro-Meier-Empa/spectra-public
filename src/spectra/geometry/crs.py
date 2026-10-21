@@ -40,7 +40,7 @@ def utm_crs(lon: float, lat: float) -> pyproj.CRS:
     Uses the regular 6-degree zones (no Norway/Svalbard exceptions).
 
     Raises:
-        ContractError: If the point is not finite or outside the UTM latitudes.
+        :exc:`ContractError`: If the point is not finite or outside the UTM latitudes.
     """
     if not (np.isfinite(lon) and np.isfinite(lat)) or not -80.0 <= lat <= 84.0:
         raise ContractError(f"No UTM zone for lon={lon}, lat={lat}.")

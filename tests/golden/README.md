@@ -25,7 +25,7 @@ package.
 | `inputs/radiance_window.nc` | Radiance crop, 29 SWIR bands |
 | `inputs/microhh_raw.nc` | MicroHH `ch4_path` snapshot crop (12 x 30 cells, no attrs) |
 | `inputs/lut.nc`, `inputs/target_10ppm.nc` | Real absorption table and 10 ppm unit absorption spectrum |
-| `inputs/column_on_grid.nc` | Synthetic Gaussian column on the radiance grid (kg m-2) |
+| `inputs/column_on_grid.nc` | Synthetic Gaussian column on the radiance grid [kg m-2] |
 | `expected/embedded_radiance_vertical.nc` | `embed_column_in_radiance` output |
 | `expected/embedded_rot_window.nc` | v0.1.0 single-plume pipeline (`place_and_regrid` + `embed_radiance_sample`) on the crop with placement `rot` and `inputs/lut.nc`; the current pipeline must reproduce it (`tests/test_equivalence.py`) |
 | `expected/injected_ch4_mass.nc` | `injected_column` output |

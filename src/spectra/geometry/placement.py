@@ -156,7 +156,7 @@ def anchor_source_point(
     """Return the LES point pinned to the anchor, in the model frame.
 
     Raises:
-        ContractError: If the emission source is requested but the column has
+        :exc:`ContractError`: If the emission source is requested but the column has
             no finite ``source_x``/``source_y`` attributes.
     """
     if placement.anchor_corner != "source":
@@ -198,7 +198,7 @@ def place_column(
         The placed snapshot with transformed nodes and centres.
 
     Raises:
-        ContractError: If the column grid, units or values are invalid.
+        :exc:`ContractError`: If the column grid, units or values are invalid.
     """
     if set(column.dims) != {"x", "y"}:
         raise ContractError(

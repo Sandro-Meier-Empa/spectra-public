@@ -378,7 +378,7 @@ def load_run(
         The validated run.
 
     Raises:
-        ContractError: Naming the first invalid or unknown entry.
+        :exc:`ContractError`: Naming the first invalid or unknown entry.
     """
     if isinstance(source, Mapping):
         mapping: Mapping[str, Any] = source

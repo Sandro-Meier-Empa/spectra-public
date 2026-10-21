@@ -18,7 +18,7 @@ importers and the copy-and-patch exporter can be tested without real data:
 at the HDF5 level (dtype, layout, chunks, filters, fill value, storage offset,
 attributes with their HDF5 types and the raw bytes), which is what "the output
 is the input file with only the patched pixels changed" means. They need
-``h5py``.
+:mod:`h5py`.
 """
 
 from __future__ import annotations

@@ -159,7 +159,7 @@ def validate_plume_column(
         Summary of the validated column.
 
     Raises:
-        ContractError: If the dataset violates the contract.
+        :exc:`ContractError`: If the dataset violates the contract.
     """
     contract = dataset.attrs.get("contract")
     if contract is not None and contract != PLUME_COLUMN_CONTRACT:

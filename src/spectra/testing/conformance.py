@@ -62,7 +62,7 @@ def run_adapter_conformance(
 
     Besides the ``SensorScene`` contract, sampled radiance spectra of the
     scene must equal a direct read of the native file through the adapter's
-    ``LAYOUT``, which proves import and export use the same mapping.
+    :attr:`SensorAdapter.LAYOUT`, which proves import and export use the same mapping.
 
     Args:
         adapter: Candidate sensor adapter.

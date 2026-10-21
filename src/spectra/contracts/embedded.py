@@ -88,7 +88,7 @@ def check_not_embedded(path: str | Path) -> None:
     ``injected_*_mass`` or ``source_*`` would collide with the output schema.
 
     Raises:
-        ContractError: Naming what was found.
+        :exc:`ContractError`: Naming what was found.
     """
     with netCDF4.Dataset(path) as dataset:
         for group in _groups(dataset):

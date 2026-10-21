@@ -70,7 +70,7 @@ def validate_sensor_scene(
         Summary of the validated scene.
 
     Raises:
-        ContractError: If the dataset violates the contract.
+        :exc:`ContractError`: If the dataset violates the contract.
     """
     for dim in SENSOR_DIMS:
         if dim not in dataset.dims:
@@ -158,7 +158,7 @@ def select_bands(
         The dataset restricted along ``band``.
 
     Raises:
-        ContractError: If no band falls inside the windows.
+        :exc:`ContractError`: If no band falls inside the windows.
     """
     wavelength = np.asarray(dataset["wavelength"].values, dtype=float)
     mask = np.zeros(wavelength.size, dtype=bool)

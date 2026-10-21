@@ -85,7 +85,7 @@ that orthorectifies them is not used.
 | `SensorScene` | Native source |
 |---|---|
 | `radiance(across, along, band)` | `radiance/radiance(wavelength, lines, samples)` (band-major, chunked): lines are `along`, samples `across`; -9999 fill, uW nm-1 cm-2 sr-1 (native units are kept) |
-| `wavelength`, `fwhm` | `radiance/wavelength`, `radiance/fwhm` (nm) |
+| `wavelength`, `fwhm` | `radiance/wavelength`, `radiance/fwhm` [nm] |
 | `time` | global attribute `time_coverage_start` |
 | `lon`, `lat` | root `lon`, `lat` (float32) |
 | `x`, `y`, CRS | `lon`/`lat` projected into the granule's own UTM zone, the `crs_wkt` of the root grid mapping (`transverse_mercator`) |

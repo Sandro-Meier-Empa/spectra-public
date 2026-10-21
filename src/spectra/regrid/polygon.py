@@ -11,7 +11,7 @@ two agree to the variation of the projection scale factor across a cell
 Overlap areas are computed by a vectorised Sutherland-Hodgman clipping of
 the target polygons against the (convex) LES cells, which is exact for
 convex clip polygons and an order of magnitude faster than the GEOS overlay;
-``shapely.intersection`` remains available as the reference engine and is
+:func:`shapely.intersection` remains available as the reference engine and is
 used automatically when a source polygon is not convex.
 """
 
@@ -242,7 +242,7 @@ def regrid_polygons(
         the target cells and ``target_mass`` the integral of ``values``.
 
     Raises:
-        ContractError: If the inputs are inconsistent or a polygon is invalid.
+        :exc:`ContractError`: If the inputs are inconsistent or a polygon is invalid.
     """
     if norm not in NORMS:
         raise ContractError(f"norm must be one of {NORMS}; got {norm!r}.")

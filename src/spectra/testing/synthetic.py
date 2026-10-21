@@ -41,8 +41,8 @@ DEFAULT_SCENE_CRS = "EPSG:32632"
 DEFAULT_SCENE_ORIGIN_XY = (500000.0, 5200000.0)
 UNIT_ABSORPTION_UNITS = "ppm-1 m-1"
 SCENE_COORDINATE_NAMES = ("lat", "lon", "x", "y", "spatial_ref", "time")
-# Gaussian absorption lines of the toy unit absorption spectrum: centre (nm),
-# width (nm) and relative depth. The values mimic the 2.3 um CH4 band shape.
+# Gaussian absorption lines of the toy unit absorption spectrum: centre [nm],
+# width [nm] and relative depth. The values mimic the 2.3 um CH4 band shape.
 _TOY_LINES: tuple[tuple[float, float, float], ...] = (
     (2210.0, 12.0, 0.35),
     (2250.0, 10.0, 0.45),
@@ -158,7 +158,7 @@ def make_plume_column(
         seed: Seed of the plume texture.
 
     Returns:
-        Dataset passing ``validate_plume_column``.
+        Dataset passing :func:`~spectra.contracts.plume_column.validate_plume_column`.
 
     Raises:
         ValueError: If the arguments do not describe a plume inside the domain.

@@ -127,7 +127,7 @@ def ring_outline(outline_x: npt.ArrayLike, outline_y: npt.ArrayLike) -> Outline:
     rejected.
 
     Raises:
-        ContractError: If the ring is not finite or encloses no area.
+        :exc:`ContractError`: If the ring is not finite or encloses no area.
     """
     require_finite(outline_x, outline_y)
     polygon = Polygon(zip(np.asarray(outline_x), np.asarray(outline_y), strict=True))

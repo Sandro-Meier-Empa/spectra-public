@@ -42,7 +42,7 @@ def resolve_files(
         Resolved path by role.
 
     Raises:
-        ContractError: If a role is unknown or missing, a path is not an
+        :exc:`ContractError`: If a role is unknown or missing, a path is not an
             existing regular file, or two roles name the same file.
     """
     unknown = sorted(set(files) - set(roles))
@@ -176,7 +176,7 @@ def coverage_start(value: str, path: Path) -> np.datetime64:
     Both the ``Z`` and the ``+0000`` suffix of NASA L1B granules are accepted.
 
     Raises:
-        ContractError: If the value does not parse.
+        :exc:`ContractError`: If the value does not parse.
     """
     try:
         stamp = datetime.datetime.strptime(value, _COVERAGE_TIME_FORMAT)

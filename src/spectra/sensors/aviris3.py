@@ -68,7 +68,7 @@ def _grid_mapping_wkt(root: xr.Dataset, path: Path) -> str:
     """Return the WKT of the single CF grid mapping in the root group.
 
     Raises:
-        ContractError: If there is none, more than one, or it has no WKT.
+        :exc:`ContractError`: If there is none, more than one, or it has no WKT.
     """
     mappings = [
         variable
@@ -116,7 +116,7 @@ class Aviris3Adapter:
         geometry are read and the files closed.
 
         Raises:
-            ContractError: If a file is missing or already embedded, the OBS
+            :exc:`ContractError`: If a file is missing or already embedded, the OBS
                 granule does not match the RDN granule, or a variable or the
                 grid mapping is missing.
         """

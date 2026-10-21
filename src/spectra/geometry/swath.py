@@ -474,7 +474,7 @@ def locate_pixel(geometry: SceneGeometry, xy: tuple[float, float]) -> tuple[int,
     of the (possibly lazy) pixel-centre geometry is loaded.
 
     Raises:
-        ContractError: If no finite pixel centre lies near the point.
+        :exc:`ContractError`: If no finite pixel centre lies near the point.
     """
     x0, y0 = (float(value) for value in xy)
     region = candidate_region(geometry, (x0, y0, x0, y0))
@@ -492,8 +492,8 @@ class ResolvedAnchor:
 
     Attributes:
         placement: Placement with the anchor pixel; for geographic anchors it
-            carries the exact projected point in ``anchor_xy`` and the nearest
-            pixel as anchor indices.
+            carries the exact projected point in :attr:`Placement.anchor_xy`
+            and the nearest pixel as anchor indices.
         mode: How the anchor was given: ``lonlat``, ``pixel`` or ``random``.
         anchor_xy: Projected point the LES anchor point is placed on.
         outside_fraction: Plume mass fraction outside the swath.
@@ -557,7 +557,7 @@ def resolve_anchor(
         The resolved anchor with its placement and outside mass fraction.
 
     Raises:
-        ContractError: If the inputs are invalid, the anchor leaves no plume
+        :exc:`ContractError`: If the inputs are invalid, the anchor leaves no plume
             mass inside the swath, or no random draw satisfies ``bounds``.
     """
     rotation_deg = validate_rotation(rotation_deg)

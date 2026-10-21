@@ -60,7 +60,7 @@ def check_output_target(
     """Validate the output path against the inputs and return it resolved.
 
     Raises:
-        ContractError: If the output is one of the input files (also through
+        :exc:`ContractError`: If the output is one of the input files (also through
             symbolic or hard links) or a directory.
         FileExistsError: If the output exists and ``overwrite`` is false.
     """
@@ -102,7 +102,7 @@ def write_native(
         The resolved output path.
 
     Raises:
-        ContractError: If the output is an input, the input is already
+        :exc:`ContractError`: If the output is an input, the input is already
             embedded or not NetCDF4, or the result does not fit the file.
         FileExistsError: If the output exists and ``overwrite`` is false.
         OSError: If the output file system lacks space for the copy.

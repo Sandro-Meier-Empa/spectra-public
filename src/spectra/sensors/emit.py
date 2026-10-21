@@ -82,7 +82,7 @@ class EmitAdapter:
         """Open a granule lazily as a ``SensorScene`` dataset.
 
         Raises:
-            ContractError: If a file is missing or already embedded, the OBS
+            :exc:`ContractError`: If a file is missing or already embedded, the OBS
                 granule does not match the RAD granule, or its bands differ
                 from the EMIT layout.
         """

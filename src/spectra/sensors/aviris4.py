@@ -5,8 +5,8 @@ A scene is two files, given by role:
 - ``radiance``: ``radiance(across, along, band)`` with ``wavelength`` and
   ``fwhm`` data variables and a scalar ``time``;
 - ``metadata``: projected ``x``/``y`` (``epsg`` attributes), ``lon``/``lat``,
-  ``elevation``, the signed scan zenith (degrees x 100), the view azimuth
-  (degrees x 10), the aircraft altitude and ``cast_shadow`` whose ``zenith``
+  ``elevation``, the signed scan zenith [degrees x 100], the view azimuth
+  [degrees x 10], the aircraft altitude and ``cast_shadow`` whose ``zenith``
   and ``azimuth`` attributes are the solar angles of the flight line.
 
 Both the files of the 2024/2025 campaigns (contiguous, ``days since`` time)
@@ -43,7 +43,7 @@ def _scalar_time(dataset: xr.Dataset, path: Path) -> np.datetime64:
     """Return the scalar acquisition time of an AVIRIS-4 file.
 
     Raises:
-        ContractError: If the file has no scalar datetime ``time``.
+        :exc:`ContractError`: If the file has no scalar datetime ``time``.
     """
     if "time" not in dataset.variables or dataset["time"].ndim != 0:
         raise ContractError(f"{path} has no scalar 'time' variable.")
@@ -79,7 +79,7 @@ class Aviris4Adapter:
         """Open a flight line lazily as a ``SensorScene`` dataset.
 
         Raises:
-            ContractError: If a file is missing, already embedded, or lacks
+            :exc:`ContractError`: If a file is missing, already embedded, or lacks
                 the time, geolocation or solar angles.
         """
         paths = resolve_files(self.ROLES, files)

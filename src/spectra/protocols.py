@@ -25,8 +25,9 @@ class SensorAdapter(Protocol):
     """Open one sensor's native files as a ``SensorScene`` and locate its radiance.
 
     Adapters never discover files: the user lists every file by role.
-    ``LAYOUT`` tells the copy-and-patch exporter where the radiance lives in
-    the native file, so import and export share one dimension mapping.
+    :attr:`SensorAdapter.LAYOUT` tells the copy-and-patch exporter where the
+    radiance lives in the native file, so import and export share one
+    dimension mapping.
     """
 
     name: str
@@ -43,7 +44,7 @@ class SensorAdapter(Protocol):
         """Open one scene lazily as a ``SensorScene`` dataset.
 
         Args:
-            files: File path by role (``ROLES``).
+            files: File path by role (:attr:`SensorAdapter.ROLES`).
             chunks: Dask chunks in common dimension names.
         """
         ...
@@ -75,7 +76,11 @@ class ForwardModel(Protocol):
         ...
 
     def check(self, gas: str) -> None:
-        """Raise ``ContractError`` if the model cannot handle ``gas``."""
+        """Raise if the model cannot handle ``gas``.
+
+        Raises:
+            :exc:`~spectra.contracts.errors.ContractError`: If it cannot.
+        """
         ...
 
     def lut(
