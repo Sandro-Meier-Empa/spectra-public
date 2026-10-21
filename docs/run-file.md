@@ -66,7 +66,13 @@ point is pinned to one of:
 |---|---|
 | `{lon, lat}` | a geographic position, projected exactly (not snapped to a pixel) |
 | `{along, across}` | the centre of a pixel of the scene |
-| `random` / `{random: true}` | a uniformly random pixel; the plume mass fraction outside the swath must lie in `[min_outside_fraction, max_outside_fraction]` (default `[0, 0]`, fully inside), drawn up to `max_attempts` times |
+| `random` / `{random: true}` | a uniformly random pixel among those where the plume mass fraction outside the swath lies in `[min_outside_fraction, max_outside_fraction]` (default `[0, 0]`, fully inside); up to `max_attempts` candidate pixels are tested |
+
+A random anchor is drawn from a map of the pixels that can meet the
+outside-fraction bounds for the plume's rotation and reflection. The map is
+built from the swath outline and one read of the pixel centres. If no pixel
+can meet the bounds, the run stops at once and reports the outside fractions
+the placement can reach, rather than drawing in vain.
 
 `corner` selects the point of the LES grid that is pinned: `source` (the
 emission source, `source_x`/`source_y` of the plume file; default) or a grid

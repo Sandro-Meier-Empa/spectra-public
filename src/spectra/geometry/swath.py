@@ -29,6 +29,7 @@ from spectra.geometry.corners import (
     window_corner_nodes,
 )
 from spectra.geometry.crs import from_lonlat
+from spectra.geometry.feasibility import AnchorTiles, FeasibilityMap
 from spectra.geometry.placement import place_column
 from spectra.geometry.transform import (
     support_vertices,
@@ -433,20 +434,46 @@ def random_anchor(
     bounds: tuple[float, float],
     rng: np.random.Generator | None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    tiles: AnchorTiles | None = None,
 ) -> AnchorDraw:
     """Draw uniform anchor pixels until the outside mass fraction is in bounds.
 
-    Every pixel is drawn with equal probability and the first eligible one is
-    returned, so accepted anchors are uniformly distributed over the eligible
-    pixels without evaluating the whole swath.
+    Pixels are drawn with equal probability from the candidates of a
+    :class:`~spectra.geometry.feasibility.FeasibilityMap`, which hold every
+    eligible pixel, and the first eligible one is returned, so accepted
+    anchors are uniformly distributed over the eligible pixels without
+    evaluating the whole swath exactly.
+
+    Args:
+        geometry: Scene geometry.
+        swath: Swath outline of ``geometry``.
+        points: Transformed plume mass points relative to the anchor.
+        support_rel: Support rectangle vertices relative to the anchor.
+        bounds: Accepted outside mass fractions.
+        rng: Random generator; a fresh one when omitted.
+        max_attempts: Maximum number of exactly tested draws.
+        tiles: Anchor tiles of ``geometry``; read from it when omitted.
+
+    Raises:
+        ContractError: If no pixel can reach the bounds or no draw meets them.
     """
-    n_across, n_along = geometry.shape
     generator = np.random.default_rng() if rng is None else rng
     minimum, maximum = outside_fraction_bounds(*bounds)
     max_attempts = _validate_max_attempts(max_attempts)
+    tiles = tiles if tiles is not None else AnchorTiles.from_geometry(geometry)
+    feasibility = FeasibilityMap.build(tiles, swath, points)
+    cumulative = feasibility.cumulative_counts((minimum, maximum))
+    if cumulative[-1] == 0:
+        low, high = feasibility.attainable()
+        raise ContractError(
+            "No pixel of the swath places the plume with a mass fraction outside "
+            f"the swath between {minimum:.3f} and {maximum:.3f}; this placement "
+            f"reaches fractions between {low:.3g} and {high:.3g}. Widen the "
+            "outside-fraction bounds or change the rotation."
+        )
     for attempt in range(1, max_attempts + 1):
-        along = int(generator.integers(0, n_along))
-        across = int(generator.integers(0, n_across))
+        rank = int(generator.integers(0, cumulative[-1]))
+        along, across = feasibility.pixel(geometry, cumulative, rank)
         anchor_x, anchor_y = pixel_centre(geometry, along, across)
         fraction = outside_mass_fraction(
             swath, support_rel, (anchor_x, anchor_y), points
@@ -524,6 +551,7 @@ def resolve_anchor(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     emission_scale: float = 1.0,
     time_index: int = 0,
+    tiles: AnchorTiles | None = None,
 ) -> ResolvedAnchor:
     """Resolve where a plume column is anchored in a sensor swath.
 
@@ -552,6 +580,8 @@ def resolve_anchor(
         max_attempts: Maximum number of random draws.
         emission_scale: Emission scale carried by the placement.
         time_index: LES time index carried by the placement.
+        tiles: Anchor tiles of ``geometry`` for random draws; read from it
+            when omitted.
 
     Returns:
         The resolved anchor with its placement and outside mass fraction.
@@ -605,6 +635,7 @@ def resolve_anchor(
             bounds=bounds,
             rng=rng,
             max_attempts=max_attempts,
+            tiles=tiles,
         )
     elif mode == "lonlat":
         if lonlat is None:

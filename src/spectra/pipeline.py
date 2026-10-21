@@ -28,6 +28,7 @@ from spectra.contracts.units import CANONICAL_COLUMN_UNITS, convert_column_units
 from spectra.geometry.amf import effective_layer_height
 from spectra.geometry.corners import Outline
 from spectra.geometry.crs import to_lonlat
+from spectra.geometry.feasibility import AnchorTiles
 from spectra.geometry.placement import anchor_source_point
 from spectra.geometry.swath import ResolvedAnchor, resolve_anchor, swath_polygon
 from spectra.geometry.transform import transform_coordinates
@@ -96,6 +97,12 @@ def resolve_plumes(
     datasets = dict(datasets) if datasets is not None else open_plumes(plumes)
     geometry = geometry or SceneGeometry.from_scene(scene)
     swath = swath if swath is not None else swath_polygon(geometry)
+    # Random anchors share one read of the pixel centres.
+    tiles = (
+        AnchorTiles.from_geometry(geometry)
+        if any(plume.anchor.mode == "random" for plume in plumes)
+        else None
+    )
     children = np.random.SeedSequence(int(seed)).spawn(len(plumes))
     anchors = []
     for plume, child in zip(plumes, children, strict=True):
@@ -118,6 +125,7 @@ def resolve_plumes(
                 max_attempts=spec.max_attempts,
                 emission_scale=plume.emission_scale,
                 time_index=plume.time_index,
+                tiles=tiles,
             )
         )
     return anchors

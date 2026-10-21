@@ -48,6 +48,11 @@ dataset generation.
   newer chunked converter output too, and keeps radiance in native units.
 - Swath outlines that cross themselves at folded edges are repaired instead of
   rejected.
+- Random anchors are drawn from a conservative map of the pixels that can
+  meet the outside-fraction bounds (`spectra.geometry.feasibility`) instead
+  of from the whole scene. Infeasible bounds fail at once with the reachable
+  fractions, pixels without geolocation are never drawn, and a given seed
+  draws different pixels than before.
 - Plume-column validation reduces chunked files lazily; plume files are
   NetCDF only.
 

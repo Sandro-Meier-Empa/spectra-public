@@ -11,9 +11,11 @@ import shapely
 import xarray as xr
 from shapely.geometry import Polygon
 
+import spectra.geometry.swath as swath_module
 from spectra.contracts.errors import ContractError
 from spectra.geometry.corners import outline_polygon
 from spectra.geometry.crs import to_lonlat
+from spectra.geometry.feasibility import AnchorTiles, FeasibilityMap
 from spectra.geometry.placement import PlacedColumn, place_column
 from spectra.geometry.swath import (
     MassPoints,
@@ -29,8 +31,9 @@ from spectra.geometry.swath import (
     window_nodes,
     window_polygon,
 )
+from spectra.geometry.transform import support_vertices
 from spectra.regrid.windows import anchor_pixel_centre, support_window
-from spectra.types import Placement, SceneGeometry, Window
+from spectra.types import AnchorPoint, Flip, Placement, SceneGeometry, Window
 
 PLACEMENTS = ("rot", "flip", "partial")
 
@@ -354,6 +357,154 @@ def test_random_anchor_on_synthetic_geometry() -> None:
     assert window.along.start <= draw.along
     assert window.along.stop >= draw.along + 3
     assert window.across.stop >= draw.across + 2
+
+
+def anchor_inputs(
+    column: xr.DataArray,
+    geometry: SceneGeometry,
+    *,
+    corner: AnchorPoint,
+    rotation_deg: int,
+    flip: Flip,
+) -> tuple[np.ndarray, MassPoints]:
+    """Return the support rectangle and mass points as resolve_anchor builds them."""
+    placement = Placement(anchor_corner=corner, rotation_deg=rotation_deg, flip=flip)
+    probe = place_column(
+        column, crs=geometry.crs, anchor_target_xy=(0.0, 0.0), placement=placement
+    )
+    support = support_vertices(
+        probe.support_bounds, probe.anchor_source_xy, rotation_deg, flip
+    )
+    points = MassPoints.from_values(
+        probe.values,
+        column["x"].values,
+        column["y"].values,
+        anchor_source=probe.anchor_source_xy,
+        rotation_deg=rotation_deg,
+        flip=flip,
+    )
+    return support, points
+
+
+def synthetic_grid(n_across: int = 10, n_along: int = 20) -> SceneGeometry:
+    """Return a regular 1 m grid with along-track x and across-track y."""
+    along_x, across_y = np.meshgrid(
+        np.arange(float(n_along)), np.arange(float(n_across)), indexing="xy"
+    )
+    return SceneGeometry(
+        x=xr.DataArray(along_x, dims=("across", "along")),
+        y=xr.DataArray(across_y, dims=("across", "along")),
+        crs=pyproj.CRS.from_epsg(32632),
+    )
+
+
+@pytest.mark.golden
+@pytest.mark.parametrize(
+    ("corner", "rotation_deg", "flip"),
+    [("upper left", 0, "none"), ("lower left", -20, "x"), ("lower right", 135, "y")],
+)
+def test_feasibility_bounds_hold_for_every_pixel(
+    geometry: SceneGeometry,
+    column: xr.DataArray,
+    corner: AnchorPoint,
+    rotation_deg: int,
+    flip: Flip,
+) -> None:
+    support, points = anchor_inputs(
+        column, geometry, corner=corner, rotation_deg=rotation_deg, flip=flip
+    )
+    swath = swath_polygon(geometry)
+    shapely.prepare(swath)
+    tiles = AnchorTiles.from_geometry(geometry)
+    feasibility = FeasibilityMap.build(tiles, swath, points)
+    x = np.asarray(geometry.x.values)
+    y = np.asarray(geometry.y.values)
+    fractions = np.array(
+        [
+            [
+                outside_mass_fraction(swath, support, (x[a, b], y[a, b]), points)
+                for b in range(x.shape[1])
+            ]
+            for a in range(x.shape[0])
+        ]
+    )
+    size = tiles.size
+    lower = feasibility.lower.repeat(size, 0).repeat(size, 1)[
+        : x.shape[0], : x.shape[1]
+    ]
+    upper = feasibility.upper.repeat(size, 0).repeat(size, 1)[
+        : x.shape[0], : x.shape[1]
+    ]
+    # The bounds hold for every pixel, so the candidates hold every eligible one.
+    assert np.all(fractions >= lower - 1e-9)
+    assert np.all(fractions <= upper + 1e-9)
+    # They are informative: most pixels are pinned down closely.
+    assert np.mean(upper - lower < 0.1) > 0.5
+
+
+def test_random_anchor_fails_fast_when_no_pixel_fits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    geometry = synthetic_grid()
+    swath = swath_polygon(geometry)
+    # The plume spans 12 m across track, the swath 10 m.
+    points = MassPoints.from_values(
+        np.ones((12, 2)),
+        np.arange(2.0),
+        np.arange(12.0),
+        anchor_source=(0.0, 0.0),
+        rotation_deg=0,
+        flip="none",
+    )
+    support = np.asarray([(-0.5, -0.5), (1.5, -0.5), (1.5, 11.5), (-0.5, 11.5)])
+    tested: list[object] = []
+
+    def counting(*args: object) -> float:
+        tested.append(args)
+        return 0.0
+
+    monkeypatch.setattr(swath_module, "outside_mass_fraction", counting)
+    with pytest.raises(ContractError, match="reaches fractions between"):
+        random_anchor(
+            geometry,
+            swath,
+            points,
+            support,
+            bounds=(0.0, 0.0),
+            rng=np.random.default_rng(0),
+        )
+    assert not tested
+
+
+def test_random_anchor_skips_pixels_without_geolocation() -> None:
+    geometry = synthetic_grid()
+    x = np.asarray(geometry.x.values)
+    y = np.asarray(geometry.y.values)
+    x[3:7, 5:15] = np.nan
+    y[3:7, 5:15] = np.nan
+    swath = swath_polygon(geometry)
+    points = MassPoints.from_values(
+        np.ones((1, 1)),
+        np.zeros(1),
+        np.zeros(1),
+        anchor_source=(0.0, 0.0),
+        rotation_deg=0,
+        flip="none",
+    )
+    support = np.asarray([(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)])
+    tiles = AnchorTiles.from_geometry(geometry)
+    for seed in range(40):
+        draw = random_anchor(
+            geometry,
+            swath,
+            points,
+            support,
+            bounds=(0.0, 0.0),
+            rng=np.random.default_rng(seed),
+            tiles=tiles,
+        )
+        assert np.isfinite(x[draw.across, draw.along])
+        assert draw.attempts == 1
 
 
 def test_locate_pixel_matches_brute_force() -> None:
