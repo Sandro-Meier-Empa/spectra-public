@@ -81,6 +81,8 @@ consumes L1 radiance. The package uses a `src/` layout.
   `spectra.testing.native`.
 - Avoid committing generated caches, local environment files, large outputs or
   bulky hyperspectral products. The pre-commit hook rejects files above 6000 KB.
+- Write units in square brackets, not parentheses, e.g. `XCH4 [ppb]` or
+  `wind speed [m s-1]`, in docstrings, comments, plot labels and docs.
 
 ## Workflow Notes
 
