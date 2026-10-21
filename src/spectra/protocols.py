@@ -54,8 +54,8 @@ class SensorAdapter(Protocol):
 class ForwardModel(Protocol):
     """Compute absorption look-up tables for the Lambert-Beer embedding.
 
-    Scene bands outside :attr:`spectral_range_nm` pass the embedding
-    unattenuated.
+    Scene bands outside :attr:`spectral_range_nm`, or outside the run's
+    ``wavelength_ranges_nm`` when given, pass the embedding unattenuated.
     """
 
     name: str

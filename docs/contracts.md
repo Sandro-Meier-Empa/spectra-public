@@ -68,7 +68,7 @@ group:
 | `source_injected_mass`, `source_outside_fraction` | float64 kg on the sensor grid, plume mass fraction outside the swath |
 | `source_cluster` | int32 index of the plume cluster (plumes with overlapping windows) |
 | `source_lut_sza`, `source_lut_vza`, `source_lut_amf`, `source_lut_surface_elevation` | geometry of the cluster's absorption table |
-| `spectra_*` global attributes | version, gas, regridder, seed, source radiance path/size/mtime, attenuated wavelength range, forward-model settings (`spectra_forward_model_*`) and `spectra_run_config`, the fully resolved run file (seed and drawn anchors filled in) |
+| `spectra_*` global attributes | version, gas, regridder, seed, source radiance path/size/mtime, attenuated wavelength range and ranges, forward-model settings (`spectra_forward_model_*`) and `spectra_run_config`, the fully resolved run file (seed and drawn anchors filled in) |
 
 A file carrying a `source` dimension, `spectra_*` attributes or colliding
 `source_*`/`injected_*_mass` variables is refused as input

@@ -199,7 +199,7 @@ def _validate(
                 f"along={sizes['along']}."
             )
     for cluster in result.clusters:
-        if cluster.bands.stop > sizes["band"]:
+        if cluster.bands[-1] >= sizes["band"]:
             raise ContractError(f"Cluster {cluster.index} names bands beyond the cube.")
 
 
@@ -216,25 +216,41 @@ def _fill_values(variable: netCDF4.Variable) -> list[Any]:
 def _patch_cluster(
     variable: netCDF4.Variable, layout: NativeLayout, cluster: ClusterResult, gas: str
 ) -> None:
-    """Attenuate the plume pixels of one cluster in place, block by block.
-
-    Only pixels with a positive column and valid radiance, in the cluster's
-    bands, are rewritten; every other element is written back from the raw
-    values just read, which keeps its bytes.
-    """
+    """Attenuate the plume pixels of one cluster in place, band run by band run."""
     common = _common_dims(variable, layout)
+    fill_values = _fill_values(variable)
+    wavelength = np.asarray(cluster.lut["wavelength"].values)
+    for bands, rows in cluster.band_runs:
+        _patch_band_run(
+            variable, common, cluster, bands, wavelength[rows], fill_values, gas
+        )
+
+
+def _patch_band_run(
+    variable: netCDF4.Variable,
+    common: list[str],
+    cluster: ClusterResult,
+    bands: slice,
+    wavelength: np.ndarray,
+    fill_values: list[Any],
+    gas: str,
+) -> None:
+    """Attenuate the plume pixels of one contiguous band run, block by block.
+
+    Only pixels with a positive column and valid radiance, in ``bands``, are
+    rewritten; every other element is written back from the raw values just
+    read, which keeps its bytes.
+    """
     order = [common.index(dim) for dim in COMMON_ORDER]
     inverse = [order.index(axis) for axis in range(3)]
     window = cluster.window
-    slices = {"across": window.across, "along": window.along, "band": cluster.bands}
+    slices = {"across": window.across, "along": window.along, "band": bands}
     outer = common[0]
     inner_elements = 1
     for dim in common[1:]:
         span = slices[dim]
         inner_elements *= span.stop - span.start
     step = max(1, _BLOCK_BYTES // max(1, inner_elements * variable.dtype.itemsize))
-    fill_values = _fill_values(variable)
-    wavelength = np.asarray(cluster.lut["wavelength"].values)
     outer_span = slices[outer]
     for start in range(outer_span.start, outer_span.stop, step):
         block = dict(slices)
@@ -247,9 +263,8 @@ def _patch_cluster(
             block["along"].start - window.along.start,
             block["along"].stop - window.along.start,
         )
-        bands = slice(
-            block["band"].start - cluster.bands.start,
-            block["band"].stop - cluster.bands.start,
+        rows = slice(
+            block["band"].start - bands.start, block["band"].stop - bands.start
         )
         column = cluster.column[across, along]
         plume = column > 0
@@ -264,7 +279,7 @@ def _patch_cluster(
         radiance = xr.DataArray(
             view,
             dims=COMMON_ORDER,
-            coords={"wavelength": ("band", wavelength[bands])},
+            coords={"wavelength": ("band", wavelength[rows])},
         )
         attenuated = embed_column_in_radiance(
             radiance,
@@ -393,6 +408,14 @@ def _write_metadata(
         attrs["spectra_attenuated_wavelength_max_nm"] = max(
             w.max() for w in wavelengths
         )
+        # First and last band centre of every contiguous run, flattened: netCDF
+        # attributes are one-dimensional.
+        runs = {
+            (float(w[rows][0]), float(w[rows][-1]))
+            for cluster, w in zip(result.clusters, wavelengths, strict=True)
+            for _, rows in cluster.band_runs
+        }
+        attrs["spectra_attenuated_wavelength_ranges_nm"] = np.ravel(sorted(runs))
     attrs.update(result.attrs)
     for name, value in attrs.items():
         _set_attribute(dataset, name, value)

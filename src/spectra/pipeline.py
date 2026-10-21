@@ -37,7 +37,7 @@ from spectra.plume.io import open_plume_column
 from spectra.protocols import ForwardModel
 from spectra.regrid.polygon import PolygonRegridder
 from spectra.result import ClusterResult, EmbedResult, SourceResult, windows_overlap
-from spectra.run import PlumeSpec
+from spectra.run import PlumeSpec, wavelength_ranges
 from spectra.types import SceneGeometry, SpectralResponse, ViewingGeometry, Window
 
 logger = logging.getLogger(__name__)
@@ -181,21 +181,42 @@ def cluster_windows(windows: Sequence[Window]) -> list[tuple[Window, tuple[int, 
 
 
 def attenuated_bands(
-    scene: xr.Dataset, spectral_range_nm: tuple[float, float]
-) -> slice:
-    """Return the contiguous scene bands whose centres lie in the model range.
+    scene: xr.Dataset,
+    spectral_range_nm: tuple[float, float],
+    ranges_nm: Sequence[tuple[float, float]] | None = None,
+) -> np.ndarray:
+    """Return the scene bands whose centres lie in the attenuated ranges.
+
+    Args:
+        scene: ``SensorScene`` dataset.
+        spectral_range_nm: Range the forward model covers.
+        ranges_nm: Wavelength ranges to attenuate, each inside
+            ``spectral_range_nm``; the whole model range when omitted.
+
+    Returns:
+        Strictly increasing band indices.
 
     Raises:
-        :exc:`ContractError`: If no band lies in the range.
+        :exc:`ContractError`: If a range leaves the model range or holds no band.
     """
     wavelength = np.asarray(scene["wavelength"].values, dtype=float)
-    lower, upper = spectral_range_nm
-    inside = np.flatnonzero((wavelength >= lower) & (wavelength <= upper))
-    if inside.size == 0:
-        raise ContractError(
-            f"No scene band lies in the forward model's range {spectral_range_nm} nm."
-        )
-    return slice(int(inside[0]), int(inside[-1]) + 1)
+    model_lower, model_upper = spectral_range_nm
+    if ranges_nm is None:
+        ranges, where = (spectral_range_nm,), "the forward model's range"
+    else:
+        ranges, where = wavelength_ranges(ranges_nm), "the wavelength range"
+    runs = []
+    for lower, upper in ranges:
+        if lower < model_lower or upper > model_upper:
+            raise ContractError(
+                f"The wavelength range ({lower}, {upper}) nm leaves the forward "
+                f"model's range {spectral_range_nm} nm."
+            )
+        inside = np.flatnonzero((wavelength >= lower) & (wavelength <= upper))
+        if inside.size == 0:
+            raise ContractError(f"No scene band lies in {where} {(lower, upper)} nm.")
+        runs.append(np.arange(inside[0], inside[-1] + 1))
+    return np.concatenate(runs)
 
 
 def _source_lonlat(
@@ -282,6 +303,7 @@ def embed_scene(
     seed: int,
     datasets: Mapping[Path, xr.Dataset] | None = None,
     regridder: PolygonRegridder | None = None,
+    wavelength_ranges_nm: Sequence[tuple[float, float]] | None = None,
 ) -> tuple[EmbedResult, tuple[PlumeSpec, ...]]:
     """Place, regrid and cluster plumes and build one absorption table per cluster.
 
@@ -292,16 +314,22 @@ def embed_scene(
         seed: Seed of the random anchors.
         datasets: Opened plume columns by file; opened when omitted.
         regridder: Conservative regridder; exact polygon overlap by default.
+        wavelength_ranges_nm: Wavelength ranges whose bands are attenuated;
+            every band in the forward model's range when omitted.
 
     Returns:
         The embedding result and the plumes with drawn anchors filled in.
 
     Raises:
-        :exc:`ContractError`: If plumes, anchors or the forward model are invalid.
+        :exc:`ContractError`: If plumes, anchors, wavelength ranges or the
+            forward model are invalid.
     """
     datasets = dict(datasets) if datasets is not None else open_plumes(plumes)
     gas = plume_gas(datasets)
     forward_model.check(gas.upper())
+    bands = attenuated_bands(
+        scene, forward_model.spectral_range_nm, wavelength_ranges_nm
+    )
     regridder = regridder or PolygonRegridder()
     geometry = SceneGeometry.from_scene(scene)
     swath = swath_polygon(geometry)
@@ -342,7 +370,6 @@ def embed_scene(
             )
         )
 
-    bands = attenuated_bands(scene, forward_model.spectral_range_nm)
     response = SpectralResponse(
         wavelength=np.asarray(scene["wavelength"].values)[bands],
         fwhm=np.asarray(scene["fwhm"].values)[bands],

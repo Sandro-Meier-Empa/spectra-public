@@ -15,6 +15,7 @@ import spectra
 from spectra.cli import main
 from spectra.contracts.errors import ContractError
 from spectra.geometry.crs import crs_from_dataset, to_lonlat
+from spectra.pipeline import attenuated_bands
 from spectra.plume.io import write_plume_column
 from spectra.sensors import get_sensor
 from spectra.testing import make_plume_column
@@ -209,6 +210,73 @@ def test_embed_errors(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError):
         spectra.embed(run)
     spectra.embed(run, overwrite=True)
+
+
+def test_attenuated_bands() -> None:
+    scene = xr.Dataset(
+        coords={"wavelength": ("band", [900.0, 1000.0, 1500.0, 2000.0, 2500.0])}
+    )
+    model_range = (1000.0, 2500.0)
+    np.testing.assert_array_equal(attenuated_bands(scene, model_range), [1, 2, 3, 4])
+    np.testing.assert_array_equal(
+        attenuated_bands(scene, model_range, [(2000.0, 2500.0), (1000.0, 1200.0)]),
+        [1, 3, 4],
+    )
+    with pytest.raises(ContractError, match="leaves the forward model's range"):
+        attenuated_bands(scene, model_range, [(900.0, 1200.0)])
+    with pytest.raises(ContractError, match="No scene band lies in the wavelength"):
+        attenuated_bands(scene, model_range, [(1600.0, 1900.0)])
+
+
+def test_wavelength_ranges_limit_the_attenuated_bands(tmp_path: Path) -> None:
+    # The synthetic bands lie every 54.4 nm from 380 nm; the gap between the
+    # ranges holds the band at 2282.6 nm, next to the toy line at 2300 nm.
+    ranges = [[2150.0, 2250.0], [2330.0, 2400.0]]
+    run = make_run("aviris4", tmp_path, wavelength_ranges_nm=ranges)
+    adapter = get_sensor("aviris4")
+    files = {role: Path(path) for role, path in run["files"].items()}
+    before = native_radiance(files["radiance"])
+
+    outcome = spectra.embed(run)
+
+    scene = adapter.open_scene(files)
+    wavelength = scene["wavelength"].values
+    inside = np.zeros(wavelength.size, dtype=bool)
+    for lower, upper in ranges:
+        inside |= (wavelength >= lower) & (wavelength <= upper)
+    for cluster in outcome.result.clusters:
+        np.testing.assert_array_equal(cluster.bands, np.flatnonzero(inside))
+        assert len(cluster.band_runs) == 2
+    native_dims = list(xr.open_dataset(files["radiance"])["radiance"].dims)
+    common = [adapter.LAYOUT.dims[str(dim)] for dim in native_dims]
+    after = native_radiance(outcome.output)
+    differs = (after != before) & ~(np.isnan(after) & np.isnan(before))
+    changed = np.moveaxis(differs, common.index("band"), -1).any(axis=(0, 1))
+    assert not changed[~inside].any()
+    for lower, upper in ranges:
+        assert changed[(wavelength >= lower) & (wavelength <= upper)].any()
+    # The exporter and the in-memory view apply the same attenuation.
+    expected = outcome.result.to_dataset(scene)["radiance"].transpose(*common).values
+    valid = np.isfinite(expected)
+    np.testing.assert_array_equal(after[valid], expected[valid])
+    with xr.open_dataset(outcome.output) as dataset:
+        attrs = dict(dataset.attrs)
+    runs = attrs["spectra_attenuated_wavelength_ranges_nm"].reshape(-1, 2)
+    for (first, last), (lower, upper) in zip(runs, ranges, strict=True):
+        assert lower <= first <= last <= upper
+    resolved = yaml.safe_load(attrs["spectra_run_config"])
+    assert resolved["wavelength_ranges_nm"] == ranges
+
+
+def test_wavelength_range_errors(tmp_path: Path) -> None:
+    run = make_run("aviris4", tmp_path, wavelength_ranges_nm=[[2400.0, 2600.0]])
+    with pytest.raises(ContractError, match="leaves the forward model's range"):
+        spectra.embed(run)
+    # No synthetic band lies between 2391.3 nm and 2445.7 nm.
+    run["wavelength_ranges_nm"] = [[2400.0, 2440.0]]
+    with pytest.raises(ContractError, match="No scene band lies"):
+        spectra.embed(run)
+    assert not Path(run["output"]).exists()
 
 
 def test_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

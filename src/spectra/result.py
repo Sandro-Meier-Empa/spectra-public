@@ -82,8 +82,8 @@ class ClusterResult:
         index: Cluster index.
         sources: Indices of the member plumes.
         window: Index window covering every member.
-        bands: Contiguous scene band indices attenuated (the forward model's
-            spectral range); the table's wavelengths are these bands'.
+        bands: Strictly increasing scene band indices attenuated (those in the
+            run's wavelength ranges); the table's wavelengths are these bands'.
         column: ``(n_across, n_along)`` summed injected column in kg m-2 on
             ``window``, float64.
         geometry: Observation geometry the table was built for (median over
@@ -94,26 +94,49 @@ class ClusterResult:
     index: int
     sources: tuple[int, ...]
     window: Window
-    bands: slice
+    bands: np.ndarray
     column: np.ndarray
     geometry: ViewingGeometry
     lut: xr.Dataset
 
     def __post_init__(self) -> None:
-        """Validate the band slice against the table and the column shape."""
-        if self.bands.step not in (None, 1) or self.bands.start is None:
-            raise ContractError("ClusterResult.bands must be a contiguous slice.")
-        count = self.bands.stop - self.bands.start
-        if count != self.lut.sizes.get("wavelength"):
+        """Validate the band indices against the table and the column shape."""
+        bands = np.asarray(self.bands)
+        if (
+            bands.ndim != 1
+            or bands.size == 0
+            or bands.dtype.kind not in "iu"
+            or bands[0] < 0
+            or np.any(np.diff(bands) <= 0)
+        ):
             raise ContractError(
-                f"Cluster {self.index} attenuates {count} bands but its table has "
-                f"{self.lut.sizes.get('wavelength')} wavelengths."
+                "ClusterResult.bands must be strictly increasing band indices."
+            )
+        object.__setattr__(self, "bands", bands)
+        if bands.size != self.lut.sizes.get("wavelength"):
+            raise ContractError(
+                f"Cluster {self.index} attenuates {bands.size} bands but its table "
+                f"has {self.lut.sizes.get('wavelength')} wavelengths."
             )
         if self.column.shape != self.window.shape:
             raise ContractError(
                 f"Column of cluster {self.index} has shape {self.column.shape}, "
                 f"its window {self.window.shape}."
             )
+
+    @property
+    def band_runs(self) -> tuple[tuple[slice, slice], ...]:
+        """Contiguous runs of :attr:`bands` as (scene band, table row) slices."""
+        breaks = np.flatnonzero(np.diff(self.bands) > 1) + 1
+        starts = np.concatenate([[0], breaks])
+        stops = np.concatenate([breaks, [self.bands.size]])
+        return tuple(
+            (
+                slice(int(self.bands[start]), int(self.bands[stop - 1]) + 1),
+                slice(int(start), int(stop)),
+            )
+            for start, stop in zip(starts, stops, strict=True)
+        )
 
     @property
     def amf(self) -> float:
@@ -179,21 +202,25 @@ class EmbedResult:
         values = np.array(radiance.values)
         for cluster in self.clusters:
             window = cluster.window
-            block = values[window.across, window.along, cluster.bands]
-            attenuated = embed_column_in_radiance(
-                xr.DataArray(
-                    block,
-                    dims=("across", "along", "band"),
-                    coords={"wavelength": ("band", cluster.lut["wavelength"].values)},
-                ),
-                xr.DataArray(
-                    cluster.column, dims=("across", "along"), attrs={"units": "kg m-2"}
-                ),
-                cluster.lut,
-                gas=self.gas.lower(),
-            ).values
-            patch = (cluster.column > 0)[..., None] & np.isfinite(block)
-            block[patch] = attenuated[patch]
+            wavelength = cluster.lut["wavelength"].values
+            for bands, rows in cluster.band_runs:
+                block = values[window.across, window.along, bands]
+                attenuated = embed_column_in_radiance(
+                    xr.DataArray(
+                        block,
+                        dims=("across", "along", "band"),
+                        coords={"wavelength": ("band", wavelength[rows])},
+                    ),
+                    xr.DataArray(
+                        cluster.column,
+                        dims=("across", "along"),
+                        attrs={"units": "kg m-2"},
+                    ),
+                    cluster.lut,
+                    gas=self.gas.lower(),
+                ).values
+                patch = (cluster.column > 0)[..., None] & np.isfinite(block)
+                block[patch] = attenuated[patch]
         field = np.zeros(
             (len(self.sources), scene.sizes["across"], scene.sizes["along"]),
             dtype=np.float32,

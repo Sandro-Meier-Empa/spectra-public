@@ -22,6 +22,9 @@ files:                               # every file of the scene by role (spectra 
 output: /path/to/EMIT_L1B_RAD_001_20260819T180247_2623112_032_embedded.nc
 overwrite: false                     # refuse an existing output (default)
 seed: 2026                           # random anchors; omitted -> drawn and recorded
+wavelength_ranges_nm:                # bands that get the plume; default: the forward model's range
+  - [1400, 1800]
+  - [2000, 2500]
 forward_model:
   solar_reference: /path/to/spectrum/hybrid_reference_spectrum_p005nm_resolution_c2021-03-04_with_unc.nc
   tau:                               # libRadtran molecular optical depths
@@ -34,7 +37,7 @@ forward_model:
   backgrounds: {CH4: 1.93}           # ppm; required for the plume gas
   scenario: midlatitude-summer       # label recorded as provenance
   # rho: 1.0                         # albedo of the radiance model (cancels)
-  # wmin / wmax: band range in nm    # default: coverage of the 'all' tau file
+  # wmin / wmax: model window [nm]   # default: coverage of the 'all' tau file
   # enhancement_min_ppm: 0.01        # absorption-table nodes
   # enhancement_max_ppm: 200
   # n_enhancements: 12
@@ -93,8 +96,8 @@ carry the same gas.
    and attenuated together, so overlapping plumes saturate correctly.
 4. Each cluster gets one absorption table from the forward model, at the
    median geometry (SZA, VZA, surface elevation, sensor altitude) of its
-   window, for the scene bands inside the forward model's range; other bands
-   pass through unchanged.
+   window, for the scene bands inside the wavelength ranges
+   ([below](#wavelength-ranges)); other bands pass through unchanged.
 5. The output is a byte copy of the native radiance file with the plume
    pixels attenuated (Lambert-Beer) and the embedding metadata added
    ([`contracts.md`](contracts.md#embedded-output-spectra---user)).
@@ -108,6 +111,25 @@ stops the run before the forward model runs, naming the
 0 m. For airborne sensors the whole column attenuates both photon legs; if
 the plume file has partial columns, the share of the mass above the sensor is
 logged.
+
+## Wavelength ranges
+
+`wavelength_ranges_nm` lists the ranges whose bands are attenuated, as
+`[lower, upper]` pairs in nm; a single range can be given as one pair,
+`wavelength_ranges_nm: [2000, 2500]`. A band is attenuated when its centre
+lies in a range, bounds included. Ranges must not overlap, each must lie
+inside the forward model's range and hold at least one scene band. Without
+the key every band in the forward model's range is attenuated.
+
+The ranges only select bands: the libRadtran/ARTS model still computes over
+its whole window (`wmin`/`wmax`, by default the coverage of the `tau.all`
+file), so the slit functions of bands at the edge of a range are not
+truncated. Narrowing `wmin`/`wmax` speeds the model up, but bands whose slit
+function reaches past the window are biased and logged. The output records
+the first and last attenuated band centre of every contiguous run of bands in
+`spectra_attenuated_wavelength_ranges_nm`, flattened to
+`[lower_1, upper_1, lower_2, upper_2, ...]`, next to the overall
+`spectra_attenuated_wavelength_min_nm` and `spectra_attenuated_wavelength_max_nm`.
 
 ## Reproducibility
 

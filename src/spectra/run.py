@@ -27,6 +27,7 @@ the output file and reproduces it.
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -43,7 +44,16 @@ from spectra.spectral.libradtran import LibRadtranArtsConfig, LibRadtranArtsFile
 from spectra.spectral.toy import ToyForwardModel
 from spectra.types import ANCHOR_POINTS, FLIPS, AnchorPoint, Flip
 
-RUN_KEYS = ("sensor", "files", "output", "overwrite", "seed", "forward_model", "plumes")
+RUN_KEYS = (
+    "sensor",
+    "files",
+    "output",
+    "overwrite",
+    "seed",
+    "wavelength_ranges_nm",
+    "forward_model",
+    "plumes",
+)
 PLUME_KEYS = ("file", "time_index", "anchor", "rotation", "flip", "emission_scale")
 ANCHOR_KEYS = (
     "lon",
@@ -179,6 +189,41 @@ class PlumeSpec:
 ForwardModelSpec = LibRadtranArtsConfig | ForwardModel
 
 
+def wavelength_ranges(
+    value: object, where: str = "wavelength_ranges_nm"
+) -> tuple[tuple[float, float], ...]:
+    """Return wavelength ranges in nm, sorted and validated.
+
+    Args:
+        value: One ``[lower, upper]`` pair or a sequence of such pairs.
+        where: Name used in error messages.
+
+    Returns:
+        The ranges as ``(lower, upper)`` float pairs in increasing order.
+
+    Raises:
+        :exc:`ContractError`: If a range is not an increasing pair of finite
+            numbers or two ranges overlap.
+    """
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ContractError(f"{where} must be a [lower, upper] pair or a list of them.")
+    pairs = list(value) if isinstance(value[0], (list, tuple)) else [value]
+    ranges = []
+    for index, pair in enumerate(pairs):
+        label = f"{where}[{index}]"
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise ContractError(f"{label} must be a [lower, upper] pair, got {pair!r}.")
+        lower, upper = (_float(item, label) for item in pair)
+        if not (np.isfinite(lower) and np.isfinite(upper) and lower < upper):
+            raise ContractError(f"{label} must be finite with lower < upper.")
+        ranges.append((lower, upper))
+    ranges.sort()
+    for first, second in itertools.pairwise(ranges):
+        if second[0] <= first[1]:
+            raise ContractError(f"{where}: the ranges {first} and {second} overlap.")
+    return tuple(ranges)
+
+
 @dataclass(frozen=True)
 class RunConfig:
     """One embedding run.
@@ -191,6 +236,8 @@ class RunConfig:
         forward_model: libRadtran/ARTS settings or a forward-model object.
         overwrite: Replace an existing output.
         seed: Seed of the random anchors; ``None`` draws one at run time.
+        wavelength_ranges_nm: Disjoint ranges whose bands are attenuated;
+            ``None`` attenuates every band in the forward model's range.
     """
 
     sensor: str | SensorAdapter
@@ -200,9 +247,16 @@ class RunConfig:
     forward_model: ForwardModelSpec
     overwrite: bool = False
     seed: int | None = None
+    wavelength_ranges_nm: tuple[tuple[float, float], ...] | None = None
 
     def __post_init__(self) -> None:
-        """Validate the plume list and the output path."""
+        """Validate the plume list, the output path and the wavelength ranges."""
+        if self.wavelength_ranges_nm is not None:
+            object.__setattr__(
+                self,
+                "wavelength_ranges_nm",
+                wavelength_ranges(self.wavelength_ranges_nm),
+            )
         if not self.plumes:
             raise ContractError("A run needs at least one plume.")
         object.__setattr__(self, "output", Path(self.output))
@@ -415,6 +469,7 @@ def load_run(
         forward_model=_forward_model(mapping["forward_model"], root),
         overwrite=overwrite,
         seed=None if seed is None else _int(seed, "seed"),
+        wavelength_ranges_nm=mapping.get("wavelength_ranges_nm"),
     )
 
 
@@ -481,12 +536,16 @@ def _forward_model_mapping(model: ForwardModelSpec) -> dict[str, Any]:
 def run_to_mapping(config: RunConfig) -> dict[str, Any]:
     """Return a run as plain YAML-friendly data."""
     sensor = config.sensor if isinstance(config.sensor, str) else config.sensor.name
-    return {
+    mapping: dict[str, Any] = {
         "sensor": sensor,
         "files": _plain(config.files),
         "output": str(config.output),
         "overwrite": config.overwrite,
         "seed": config.seed,
+    }
+    if config.wavelength_ranges_nm is not None:
+        mapping["wavelength_ranges_nm"] = _plain(config.wavelength_ranges_nm)
+    return mapping | {
         "forward_model": _forward_model_mapping(config.forward_model),
         "plumes": [
             {
@@ -515,4 +574,5 @@ __all__ = [
     "dump_run",
     "load_run",
     "run_to_mapping",
+    "wavelength_ranges",
 ]

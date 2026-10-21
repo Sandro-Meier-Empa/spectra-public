@@ -89,6 +89,25 @@ def test_dump_and_reload_round_trip(run_file: Path) -> None:
     assert again.plumes[2].anchor.mode == "pixel"
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ([2000, 2500], ((2000.0, 2500.0),)),
+        ([[2000, 2500], [1400, 1800.5]], ((1400.0, 1800.5), (2000.0, 2500.0))),
+    ],
+)
+def test_wavelength_ranges_in_run(tmp_path: Path, value, expected) -> None:
+    mapping = yaml.safe_load(RUN)
+    assert load_run(mapping, base=tmp_path).wavelength_ranges_nm is None
+    assert "wavelength_ranges_nm" not in yaml.safe_load(
+        dump_run(load_run(mapping, base=tmp_path))
+    )
+    mapping["wavelength_ranges_nm"] = value
+    config = load_run(mapping, base=tmp_path)
+    assert config.wavelength_ranges_nm == expected
+    assert load_run(yaml.safe_load(dump_run(config))) == config
+
+
 def test_toy_forward_model_in_run(tmp_path: Path) -> None:
     mapping = yaml.safe_load(RUN)
     mapping["forward_model"] = {"model": "toy", "width_nm": 30.0}
@@ -124,6 +143,15 @@ def test_toy_forward_model_in_run(tmp_path: Path) -> None:
         (lambda m: m["forward_model"].update(model="modtran"), "model"),
         (lambda m: m["forward_model"]["backgrounds"].update(N2O=0.3), "N2O"),
         (lambda m: m.update(output="in/RAD.nc"), "never modifies"),
+        (lambda m: m.update(wavelength_ranges_nm=[]), "pair"),
+        (lambda m: m.update(wavelength_ranges_nm="2000-2500"), "pair"),
+        (lambda m: m.update(wavelength_ranges_nm=[1400, 1800, 2000]), "pair"),
+        (lambda m: m.update(wavelength_ranges_nm=[["a", 2500]]), "number"),
+        (lambda m: m.update(wavelength_ranges_nm=[2500, 2000]), "lower < upper"),
+        (
+            lambda m: m.update(wavelength_ranges_nm=[[1400, 1800], [1800, 2500]]),
+            "overlap",
+        ),
     ],
 )
 def test_load_run_rejects(tmp_path: Path, change, match: str) -> None:

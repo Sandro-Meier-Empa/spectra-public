@@ -94,7 +94,11 @@ def embed(
     validate_sensor_scene(scene, require_lazy=True)
     model = forward_model_from(config.forward_model)
     result, plumes = embed_scene(
-        scene, config.plumes, model, seed=int(config.seed or 0)
+        scene,
+        config.plumes,
+        model,
+        seed=int(config.seed or 0),
+        wavelength_ranges_nm=config.wavelength_ranges_nm,
     )
     resolved = config.replace(plumes=plumes)
     result.attrs[RUN_CONFIG_ATTR] = dump_run(resolved)

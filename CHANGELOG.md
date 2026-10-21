@@ -27,6 +27,11 @@ dataset generation.
   and the emission source as anchor point (`corner: source`, the default).
 - Plumes with overlapping windows form clusters that are attenuated together
   with one absorption table at their median geometry.
+- `wavelength_ranges_nm` in the run file limits the attenuated bands to one
+  or more disjoint ranges inside the forward model's range, e.g.
+  `[[1400, 1800], [2000, 2500]]`; the output records them in
+  `spectra_attenuated_wavelength_ranges_nm`. `ClusterResult.bands` holds the
+  attenuated band indices and `ClusterResult.band_runs` their contiguous runs.
 - libRadtran/ARTS forward model ported from `aviris4_ch4.mf.UnitAbsorption`
   (`spectra.spectral.libradtran`), bit-identical to the original on AVIRIS-4
   and EMIT band sets, with explicit resource files, shared resource arrays

@@ -86,8 +86,14 @@ def geometry() -> ViewingGeometry:
     )
 
 
-def make_result(files: dict[str, Path], layout: NativeLayout) -> EmbedResult:
-    """Two clusters: two overlapping plumes and one alone."""
+def make_result(
+    files: dict[str, Path], layout: NativeLayout, split: bool = False
+) -> EmbedResult:
+    """Two clusters: two overlapping plumes and one alone.
+
+    ``split`` leaves the bands between the toy lines at 2200 and 2370 nm out,
+    so the clusters attenuate two band runs.
+    """
     with netCDF4.Dataset(files["radiance"]) as ds:
         if layout is EMIT:
             group = ds.groups["sensor_band_parameters"]
@@ -96,8 +102,10 @@ def make_result(files: dict[str, Path], layout: NativeLayout) -> EmbedResult:
         else:
             wavelength = ds["wavelength"][:].data
             fwhm = ds["fwhm"][:].data
-    first = int(np.argmax(wavelength >= 1000.0))
-    bands = slice(first, wavelength.size)
+    selected = wavelength >= 1000.0
+    if split:
+        selected &= (wavelength <= 2250.0) | (wavelength >= 2330.0)
+    bands = np.flatnonzero(selected)
     model = ToyForwardModel(width_nm=60.0, saturation_ppm_m=5e4)
     lut = model.lut(
         SpectralResponse(wavelength=wavelength[bands], fwhm=fwhm[bands]),
@@ -210,11 +218,15 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-@pytest.fixture(params=list(WRITERS))
+@pytest.fixture(
+    params=[(name, split) for name in WRITERS for split in (False, True)],
+    ids=lambda param: f"{param[0]}-{'split' if param[1] else 'contiguous'}",
+)
 def case(request: pytest.FixtureRequest, tmp_path: Path):
-    writer, layout = WRITERS[request.param]
+    name, split = request.param
+    writer, layout = WRITERS[name]
     files = writer(tmp_path / "in")
-    return files, layout, make_result(files, layout)
+    return files, layout, make_result(files, layout, split=split)
 
 
 def test_export_patches_only_plume_pixels(case, tmp_path: Path) -> None:
@@ -247,6 +259,12 @@ def test_export_patches_only_plume_pixels(case, tmp_path: Path) -> None:
     assert np.array_equal(patched, expected, equal_nan=True)
     assert np.all(patched[changed] <= radiance[changed])
     assert np.any(patched[changed] < radiance[changed])
+    # Every band run is attenuated; bands outside the runs never change.
+    for cluster in result.clusters:
+        for bands, _ in cluster.band_runs:
+            assert changed[cluster.window.across, cluster.window.along, bands].any()
+    others = np.setdiff1d(np.arange(radiance.shape[-1]), result.clusters[0].bands)
+    assert np.array_equal(patched[..., others], radiance[..., others], equal_nan=True)
     # The input file is neither modified nor touched.
     assert sha256(files["radiance"]) == digest
     assert files["radiance"].stat().st_mtime_ns == mtime
@@ -287,6 +305,13 @@ def test_export_writes_metadata_schema(case, tmp_path: Path) -> None:
     assert attrs["spectra_source_radiance_path"] == str(files["radiance"].resolve())
     assert attrs["spectra_source_radiance_size"] == files["radiance"].stat().st_size
     assert attrs["spectra_attenuated_wavelength_min_nm"] >= 1000.0
+    table = result.clusters[0].lut["wavelength"].values
+    runs = [
+        (table[rows][0], table[rows][-1]) for _, rows in result.clusters[0].band_runs
+    ]
+    np.testing.assert_array_equal(
+        attrs["spectra_attenuated_wavelength_ranges_nm"], np.ravel(runs)
+    )
     # Per-source fields in common order: zero outside the window, the column inside.
     common = values if layout.dims[y_dim] == "across" else values.transpose(0, 2, 1)
     for position, source in enumerate(result.sources):
