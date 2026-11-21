@@ -32,11 +32,15 @@ ATTR_PREFIX = "spectra_"
 RUN_CONFIG_ATTR = "spectra_run_config"
 
 # Per-plume variables on (source,): name -> (dtype, units, long name). The
-# anchor-pixel variables are named after the native spatial dimensions.
+# source-pixel and anchor-pixel variables are named after the native spatial
+# dimensions (source_pixel_variable, anchor_variable).
 SOURCE_VARIABLES: dict[str, tuple[str, str | None, str]] = {
     "source_plume_file": ("S1", None, "plume-column file"),
     "source_case_id": ("S1", None, "LES case identifier"),
     "source_anchor_mode": ("i1", None, "how the anchor was given"),
+    "source_anchor_point": ("S1", None, "LES grid point pinned to the anchor pixel"),
+    "source_model_x": ("f8", "m", "emission source x in the LES model frame"),
+    "source_model_y": ("f8", "m", "emission source y in the LES model frame"),
     "source_time_index": ("i4", None, "LES time index of the snapshot"),
     "source_emission_rate": ("f8", "kg s-1", "emission rate after scaling"),
     "source_emission_scale": ("f8", "1", "emission scale factor"),
@@ -69,9 +73,14 @@ def injected_name(gas: str) -> str:
     return f"injected_{gas.lower()}_mass"
 
 
+def source_pixel_variable(native_dim: str) -> str:
+    """Return the emission-source-pixel variable named after a native dimension."""
+    return f"source_{native_dim}"
+
+
 def anchor_variable(native_dim: str) -> str:
     """Return the anchor-pixel variable named after a native dimension."""
-    return f"source_{native_dim}"
+    return f"source_anchor_{native_dim}"
 
 
 def _groups(dataset: netCDF4.Dataset) -> Iterator[netCDF4.Dataset]:
@@ -123,4 +132,5 @@ __all__ = [
     "anchor_variable",
     "check_not_embedded",
     "injected_name",
+    "source_pixel_variable",
 ]

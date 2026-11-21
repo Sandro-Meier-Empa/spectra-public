@@ -60,10 +60,13 @@ group:
 | dimension `source_strlen` | width of the string variables |
 | `source_plume_file`, `source_case_id` | UTF-8 character arrays on `(source, source_strlen)` (`_Encoding`; xarray decodes them to strings) |
 | `source_anchor_mode` | int8 (`0 lonlat`, `1 pixel`, `2 random`; `flag_values`/`flag_meanings`) |
+| `source_anchor_point` | UTF-8 string, LES grid point pinned to the anchor pixel: `source` (the emission source) or a corner cell (`lower left`, ...) |
+| `source_model_x`, `source_model_y` | float64 `m`, the plume column's `source_x`/`source_y`: the emission source prescribed in the LES, in the model frame |
 | `source_time_index` | int32 LES snapshot index |
 | `source_emission_rate`, `source_emission_scale` | float64 `kg s-1` (after scaling), factor |
 | `source_lon`, `source_lat` | float64, emission source after placement |
-| `source_<native dim>` | int32 anchor pixel, one variable per native spatial dimension (e.g. `source_downtrack`, `source_crosstrack`) |
+| `source_<native dim>` | int32 emission-source pixel, one variable per native spatial dimension (e.g. `source_downtrack`, `source_crosstrack`): the pixel whose centre is nearest `source_model_x/y` after placement, whatever the anchor point; `-1` when the source lies outside the swath (a warning is issued) |
+| `source_anchor_<native dim>` | int32 anchor pixel, one variable per native spatial dimension; equals `source_<native dim>` for `source_anchor_point = source` |
 | `source_rotation`, `source_flip` | float64 degrees (counterclockwise), int8 (`0 none`, `1 x`, `2 y`; `flag_values`/`flag_meanings`) |
 | `source_injected_mass`, `source_outside_fraction` | float64 kg on the sensor grid, plume mass fraction outside the swath |
 | `source_cluster` | int32 index of the plume cluster (plumes with overlapping windows) |

@@ -33,8 +33,17 @@ class SourceResult:
         emission_scale: Emission scale applied to the column.
         lon: Longitude of the emission source after placement, in degrees.
         lat: Latitude of the emission source after placement, in degrees.
+        source_model_x: Emission source in the LES model frame, the plume
+            column's ``source_x`` [m].
+        source_model_y: Emission source in the LES model frame, the plume
+            column's ``source_y`` [m].
+        source_along: Along-track index of the pixel nearest the placed
+            emission source, ``-1`` when it lies outside the swath.
+        source_across: Across-track index of that pixel, ``-1`` when outside.
         anchor_along: Along-track index of the anchor pixel.
         anchor_across: Across-track index of the anchor pixel.
+        anchor_point: Point of the LES grid pinned to the anchor: ``source``
+            or a corner such as ``lower left``.
         anchor_mode: ``lonlat``, ``pixel`` or ``random``.
         rotation_deg: Rotation of the plume, counterclockwise positive.
         flip: Reflected LES axis: ``none``, ``x`` or ``y``.
@@ -54,8 +63,13 @@ class SourceResult:
     emission_scale: float
     lon: float
     lat: float
+    source_model_x: float
+    source_model_y: float
+    source_along: int
+    source_across: int
     anchor_along: int
     anchor_across: int
+    anchor_point: str
     anchor_mode: str
     rotation_deg: int
     flip: str

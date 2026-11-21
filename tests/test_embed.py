@@ -15,7 +15,8 @@ import spectra
 from spectra.cli import main
 from spectra.contracts.errors import ContractError
 from spectra.geometry.crs import crs_from_dataset, to_lonlat
-from spectra.pipeline import attenuated_bands
+from spectra.geometry.swath import pixel_centre, swath_polygon
+from spectra.pipeline import _source_pixel, attenuated_bands
 from spectra.plume.io import write_plume_column
 from spectra.sensors import get_sensor
 from spectra.testing import make_plume_column
@@ -25,6 +26,7 @@ from spectra.testing.native import (
     write_aviris4_files,
     write_emit_files,
 )
+from spectra.types import SceneGeometry
 
 pytest.importorskip("h5py")
 
@@ -191,6 +193,75 @@ def test_lonlat_anchor_places_the_source(tmp_path: Path) -> None:
         assert dataset["source_anchor_mode"].attrs["flag_meanings"].split()[0] == (
             "lonlat"
         )
+
+
+def _nearest_pixel(geometry: SceneGeometry, x: float, y: float) -> tuple[int, int]:
+    """Return ``(along, across)`` of the nearest pixel centre by brute force."""
+    distance = np.hypot(geometry.x.values - x, geometry.y.values - y)
+    across, along = np.unravel_index(int(np.nanargmin(distance)), distance.shape)
+    return int(along), int(across)
+
+
+def test_source_pixel_is_the_les_emission_point(tmp_path: Path) -> None:
+    run = make_run("aviris4", tmp_path)
+    plume_file = run["plumes"][0]["file"]
+    run["plumes"] = [
+        {"file": plume_file, "time_index": 1, "anchor": {"along": 10, "across": 10}},
+        {
+            "file": plume_file,
+            "time_index": 1,
+            "anchor": {"along": 20, "across": 15, "corner": "lower left"},
+            "rotation": 30,
+        },
+    ]
+    files = {role: Path(path) for role, path in run["files"].items()}
+    geometry = SceneGeometry.from_scene(get_sensor("aviris4").open_scene(files))
+    with xr.open_dataset(plume_file) as plume:
+        source_x, source_y = (
+            float(plume.attrs["source_x"]),
+            float(plume.attrs["source_y"]),
+        )
+        corner_x, corner_y = float(plume["x"][0]), float(plume["y"][0])
+
+    outcome = spectra.embed(run)
+    pinned, cornered = outcome.result.sources
+
+    # Anchored at the source: the source pixel is the anchor pixel.
+    assert (pinned.source_along, pinned.source_across) == (10, 10)
+    assert pinned.anchor_point == "source"
+    # Anchored at the lower-left cell: the source lands where the rotated
+    # offset from that cell puts it, not on the anchor pixel.
+    target_x, target_y = pixel_centre(geometry, along=20, across=15)
+    angle = np.deg2rad(30.0)
+    dx, dy = source_x - corner_x, source_y - corner_y
+    expected = _nearest_pixel(
+        geometry,
+        target_x + np.cos(angle) * dx - np.sin(angle) * dy,
+        target_y + np.sin(angle) * dx + np.cos(angle) * dy,
+    )
+    assert (cornered.source_along, cornered.source_across) == expected
+    assert expected != (20, 15)
+    assert cornered.anchor_point == "lower left"
+
+    with xr.open_dataset(outcome.output) as dataset:
+        np.testing.assert_array_equal(dataset["source_along"], [10, expected[0]])
+        np.testing.assert_array_equal(dataset["source_across"], [10, expected[1]])
+        np.testing.assert_array_equal(dataset["source_anchor_along"], [10, 20])
+        np.testing.assert_array_equal(dataset["source_anchor_across"], [10, 15])
+        assert list(dataset["source_anchor_point"].values) == ["source", "lower left"]
+        np.testing.assert_allclose(dataset["source_model_x"], [source_x] * 2)
+        np.testing.assert_allclose(dataset["source_model_y"], [source_y] * 2)
+
+
+def test_source_outside_the_swath_has_no_pixel(tmp_path: Path) -> None:
+    files = write_scene("aviris4", tmp_path / "in")
+    geometry = SceneGeometry.from_scene(get_sensor("aviris4").open_scene(files))
+    swath = swath_polygon(geometry)
+    inside = pixel_centre(geometry, along=7, across=3)
+    assert _source_pixel(geometry, swath, inside, 0) == (7, 3)
+    far = (inside[0] + 1e5, inside[1] + 1e5)
+    with pytest.warns(UserWarning, match="plume 4 lies outside the swath"):
+        assert _source_pixel(geometry, swath, far, 4) == (-1, -1)
 
 
 def test_embed_errors(tmp_path: Path) -> None:

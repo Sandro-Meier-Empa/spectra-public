@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-import pyproj
+import shapely
 import xarray as xr
 
 from spectra.contracts.errors import ContractError
@@ -30,7 +31,12 @@ from spectra.geometry.corners import Outline
 from spectra.geometry.crs import to_lonlat
 from spectra.geometry.feasibility import AnchorTiles
 from spectra.geometry.placement import anchor_source_point
-from spectra.geometry.swath import ResolvedAnchor, resolve_anchor, swath_polygon
+from spectra.geometry.swath import (
+    ResolvedAnchor,
+    locate_pixel,
+    resolve_anchor,
+    swath_polygon,
+)
 from spectra.geometry.transform import transform_coordinates
 from spectra.plume.augment import plume_fraction_below
 from spectra.plume.io import open_plume_column
@@ -219,10 +225,15 @@ def attenuated_bands(
     return np.concatenate(runs)
 
 
-def _source_lonlat(
-    column: xr.DataArray, anchor: ResolvedAnchor, crs: pyproj.CRS
+def _placed_source_xy(
+    column: xr.DataArray, anchor: ResolvedAnchor
 ) -> tuple[float, float]:
-    """Return the longitude and latitude of the emission source after placement."""
+    """Return the emission source after placement in the scene CRS [m].
+
+    The source is the plume column's ``source_x``/``source_y`` (the emission
+    point prescribed in the LES), moved with the same translation, reflection
+    and rotation as the plume, whatever point of the grid is the anchor.
+    """
     placement = anchor.placement
     x = np.asarray(column["x"].values, dtype=float)
     y = np.asarray(column["y"].values, dtype=float)
@@ -236,8 +247,25 @@ def _source_lonlat(
         rotation_deg=placement.rotation_deg,
         flip=placement.flip,
     )
-    lon, lat = to_lonlat(crs, placed_x, placed_y)
-    return float(lon[0]), float(lat[0])
+    return float(placed_x[0]), float(placed_y[0])
+
+
+def _source_pixel(
+    geometry: SceneGeometry, swath: Outline, xy: tuple[float, float], index: int
+) -> tuple[int, int]:
+    """Return ``(along, across)`` of the pixel nearest the placed source.
+
+    A source outside the swath has no pixel and yields ``(-1, -1)`` with a
+    warning; the plume may still reach into the swath.
+    """
+    if not bool(shapely.contains_xy(swath, *xy)):
+        warnings.warn(
+            f"The emission source of plume {index} lies outside the swath; its "
+            "source pixel is recorded as -1.",
+            stacklevel=3,
+        )
+        return -1, -1
+    return locate_pixel(geometry, xy)
 
 
 def _warn_above_sensor(
@@ -344,7 +372,12 @@ def embed_scene(
         regrid = regridder.regrid_to_scene(column, scene, anchor.placement)
         window = Window.from_attrs(regrid.data.attrs)
         injected = convert_column_units(regrid.data, CANONICAL_COLUMN_UNITS, gas=gas)
-        lon, lat = _source_lonlat(column, anchor, geometry.crs)
+        source_xy = _placed_source_xy(column, anchor)
+        lons, lats = to_lonlat(
+            geometry.crs, np.array([source_xy[0]]), np.array([source_xy[1]])
+        )
+        lon, lat = float(lons[0]), float(lats[0])
+        source_along, source_across = _source_pixel(geometry, swath, source_xy, index)
         _warn_above_sensor(scene, snapshot, window, index)
         outside = 1.0 - regrid.source_mass_inside / regrid.source_mass
         placed.append(
@@ -359,8 +392,13 @@ def embed_scene(
                     "emission_scale": plume.emission_scale,
                     "lon": lon,
                     "lat": lat,
+                    "source_model_x": float(column.attrs["source_x"]),
+                    "source_model_y": float(column.attrs["source_y"]),
+                    "source_along": source_along,
+                    "source_across": source_across,
                     "anchor_along": anchor.placement.anchor_along,
                     "anchor_across": anchor.placement.anchor_across,
+                    "anchor_point": str(anchor.placement.anchor_corner),
                     "anchor_mode": anchor.mode,
                     "rotation_deg": plume.rotation,
                     "flip": plume.flip,

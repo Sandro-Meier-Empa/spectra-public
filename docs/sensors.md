@@ -105,7 +105,8 @@ the aircraft. The output is a copy of the RDN granule (the radiance group, root
 geolocation, grid mapping, GLT and all global attributes unchanged); the
 embedding metadata goes to the root group on the `lines` and `samples`
 dimensions (`injected_<gas>_mass(source, lines, samples)`, `source_lines`,
-`source_samples`). The OBS granule applies to it unchanged.
+`source_samples`, `source_anchor_lines`, `source_anchor_samples`). The OBS
+granule applies to it unchanged.
 
 ## Adding a sensor
 

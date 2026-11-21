@@ -38,6 +38,7 @@ from spectra.contracts.embedded import (
     STRING_DIM,
     anchor_variable,
     check_not_embedded,
+    source_pixel_variable,
 )
 from spectra.contracts.errors import ContractError
 from spectra.result import ClusterResult, EmbedResult, SourceResult
@@ -330,6 +331,9 @@ def _write_metadata(
         "source_anchor_mode": [
             ANCHOR_MODE_CODES[plume.anchor_mode] for plume in result.sources
         ],
+        "source_anchor_point": [plume.anchor_point for plume in result.sources],
+        "source_model_x": [plume.source_model_x for plume in result.sources],
+        "source_model_y": [plume.source_model_y for plume in result.sources],
         "source_time_index": [plume.time_index for plume in result.sources],
         "source_emission_rate": [plume.emission_rate_kg_s for plume in result.sources],
         "source_emission_scale": [plume.emission_scale for plume in result.sources],
@@ -372,6 +376,19 @@ def _write_metadata(
         )
     for dim in spatial:
         common = layout.dims[dim]
+        _write_source_variable(
+            dataset,
+            source_pixel_variable(dim),
+            "i4",
+            [getattr(plume, f"source_{common}") for plume in result.sources],
+            None,
+            f"{dim} index of the pixel nearest the emission source ({common})",
+        )
+        dataset.variables[source_pixel_variable(dim)].comment = (
+            "Pixel whose centre is nearest the LES emission source (source_model_x, "
+            "source_model_y) after placement; -1 when the source lies outside "
+            "the swath."
+        )
         _write_source_variable(
             dataset,
             anchor_variable(dim),

@@ -65,6 +65,10 @@ NEW_OBJECTS = (
     "source_along",
     "source_downtrack",
     "source_crosstrack",
+    "source_anchor_across",
+    "source_anchor_along",
+    "source_anchor_downtrack",
+    "source_anchor_crosstrack",
 )
 RUN_CONFIG = "sensor: test\nplumes: []\n"
 
@@ -132,8 +136,13 @@ def make_result(
             emission_scale=1.0 + index,
             lon=10.0 + index,
             lat=45.0 + index,
+            source_model_x=100.0 + index,
+            source_model_y=200.0 + index,
+            source_along=(window.along.start + 2, window.along.start + 1, -1)[index],
+            source_across=(window.across.start + 2, window.across.start + 1, -1)[index],
             anchor_along=window.along.start + 1,
             anchor_across=window.across.start + 1,
+            anchor_point=("lower left", "source", "upper right")[index],
             anchor_mode=("lonlat", "pixel", "random")[index],
             rotation_deg=15 * index,
             flip=("none", "x", "y")[index],
@@ -286,7 +295,23 @@ def test_export_writes_metadata_schema(case, tmp_path: Path) -> None:
         values = field[:].data
         assert len(ds.dimensions["source"]) == 3
         for dim in spatial:
-            assert f"source_{dim}" in ds.variables
+            common_dim = layout.dims[dim]
+            pixel = ds[f"source_{dim}"]
+            assert pixel.dtype == np.int32 and "_FillValue" not in pixel.ncattrs()
+            np.testing.assert_array_equal(
+                pixel[:], [getattr(s, f"source_{common_dim}") for s in result.sources]
+            )
+            np.testing.assert_array_equal(
+                ds[f"source_anchor_{dim}"][:],
+                [getattr(s, f"anchor_{common_dim}") for s in result.sources],
+            )
+        assert list(ds["source_anchor_point"][:]) == [
+            "lower left",
+            "source",
+            "upper right",
+        ]
+        np.testing.assert_array_equal(ds["source_model_x"][:], [100.0, 101.0, 102.0])
+        assert ds["source_model_y"].units == "m"
         assert list(ds["source_plume_file"][:]) == [
             f"/path/to/plume_{i}.nc" for i in range(3)
         ]

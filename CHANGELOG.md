@@ -42,6 +42,12 @@ dataset generation.
 
 ### Changed
 
+- `source_<native dim>` in the output is the pixel of the emission source
+  prescribed in the LES (the plume column's `source_x`/`source_y`, placed
+  with the plume), whatever the anchor point; `-1` when the source lies
+  outside the swath. The anchor pixel moved to `source_anchor_<native dim>`,
+  and `source_anchor_point`, `source_model_x` and `source_model_y` record
+  the anchor point and the LES source position.
 - The forward model takes the solar zenith angle from the scene (AVIRIS-4
   `cast_shadow`, AVIRIS-3 and EMIT OBS) instead of an ephemeris, so
   AVIRIS-4 tables differ slightly from v0.1.0 where the two disagreed.
