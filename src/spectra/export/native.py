@@ -42,7 +42,7 @@ from spectra.contracts.embedded import (
 )
 from spectra.contracts.errors import ContractError
 from spectra.result import ClusterResult, EmbedResult, SourceResult
-from spectra.spectral.embedding import EMBEDDING_VERSION, embed_column_in_radiance
+from spectra.spectral.embedding import embed_column_in_radiance
 from spectra.types import NativeLayout
 
 COMMON_ORDER = ("across", "along", "band")
@@ -404,7 +404,15 @@ def _write_metadata(
     ]
     attrs: dict[str, Any] = {
         "spectra_version": spectra.__version__,
-        "spectra_embedding_version": EMBEDDING_VERSION,
+        # The versions of the tables used; they decide the interpolation.
+        "spectra_embedding_version": ", ".join(
+            sorted(
+                {
+                    str(cluster.lut.attrs["embedding_version"])
+                    for cluster in result.clusters
+                }
+            )
+        ),
         "spectra_created": datetime.datetime.now(datetime.UTC).isoformat(
             timespec="seconds"
         ),

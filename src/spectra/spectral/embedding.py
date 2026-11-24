@@ -1,9 +1,19 @@
 """Lambert-Beer embedding of simulated columns into radiance.
 
-Ported from ``aviris4_ch4.embedding`` without changing the numerics: the
-radiance embedding attenuates a cube with a column already placed on the
-radiance grid. The tabulated optical depths already contain the air-mass
-factor, so the default input is a vertical column.
+Ported from ``aviris4_ch4.embedding``: the radiance embedding attenuates a cube
+with a column already placed on the radiance grid. The tabulated optical
+depths already contain the air-mass factor, so the default input is a vertical
+column.
+
+The optical depth between table nodes is interpolated as the table's
+``embedding_version`` prescribes. ``lambert-beer-v1`` tables, the numerics of
+the port frozen by the golden fixtures, interpolate linearly. The band optical
+depth is convex in the path amount (lines saturate), so linear interpolation
+under-attenuates between nodes: with 12 log-spaced nodes from 0.01 to 200 ppm
+the embedded AVIRIS-4 CH4 signal (solar zenith angle 66 deg) is up to about
+3 % too weak at 0.5 to 64 ppm. ``lambert-beer-v2`` tables interpolate with
+PCHIP, which is monotone and follows the curvature (error below 0.4 % on the
+same nodes).
 """
 
 from __future__ import annotations
@@ -14,12 +24,20 @@ from typing import Literal, cast
 import numpy as np
 import ucat
 import xarray as xr
+from scipy.interpolate import PchipInterpolator
 
-EMBEDDING_VERSION = "lambert-beer-v1"
+EMBEDDING_VERSION = "lambert-beer-v2"
 COLUMN_UNITS = "kg/m2"
 PPM_METRE_UNITS = "ppm-m"
 
 ColumnConvention = Literal["vertical", "slant"]
+Interpolation = Literal["linear", "pchip"]
+
+# Optical-depth interpolation between table nodes per embedding version.
+INTERPOLATION_BY_VERSION: dict[str, Interpolation] = {
+    "lambert-beer-v1": "linear",
+    "lambert-beer-v2": "pchip",
+}
 
 
 def _band_dimension(radiance: xr.DataArray) -> str:
@@ -79,13 +97,33 @@ def _nonnegative_column(
 
 
 def _optical_depth_kernel(
-    amount: np.ndarray, nodes: np.ndarray, table: np.ndarray
+    amount: np.ndarray,
+    nodes: np.ndarray,
+    table: np.ndarray,
+    interpolation: Interpolation = "linear",
 ) -> np.ndarray:
     """Interpolate band optical depths for pixel path amounts."""
+    if interpolation == "pchip":
+        return PchipInterpolator(nodes, table, axis=0)(amount).astype(np.float32)
     output = np.empty((*amount.shape, table.shape[1]), dtype=np.float32)
     for index in range(table.shape[1]):
         output[..., index] = np.interp(amount, nodes, table[:, index])
     return output
+
+
+def table_interpolation(lut: xr.Dataset) -> Interpolation:
+    """Return the optical-depth interpolation the table's version prescribes.
+
+    Raises:
+        ValueError: If the table has an unknown ``embedding_version``.
+    """
+    version = lut.attrs.get("embedding_version")
+    if version not in INTERPOLATION_BY_VERSION:
+        raise ValueError(
+            f"Absorption table has unknown embedding_version {version!r}; "
+            f"expected one of {sorted(INTERPOLATION_BY_VERSION)}."
+        )
+    return INTERPOLATION_BY_VERSION[version]
 
 
 def _select_optical_depth(lut: xr.Dataset, wavelength: xr.DataArray) -> xr.DataArray:
@@ -123,7 +161,9 @@ def embed_column_in_radiance(
 
     The column must share the radiance spatial grid, and radiance wavelengths
     must be an exact LUT subset. Optical depth is negative by matched-filter
-    convention, so transmittance is ``exp(optical_depth)``.
+    convention, so transmittance is ``exp(optical_depth)``. Between table
+    nodes it is interpolated linearly for ``lambert-beer-v1`` tables and with
+    PCHIP for ``lambert-beer-v2`` tables (see the module docstring).
 
     Args:
         radiance: Radiance cube carrying a one-dimensional ``wavelength``
@@ -138,8 +178,10 @@ def embed_column_in_radiance(
         Attenuated radiance with the original name and metadata.
 
     Raises:
-        ValueError: If units, grids, wavelengths or LUT coverage are invalid.
+        ValueError: If units, grids, wavelengths, LUT coverage or the LUT
+            embedding version are invalid.
     """
+    interpolation = table_interpolation(lut)
     column_units = simulated_column.attrs.get("units")
     if column_units is None:
         raise ValueError(
@@ -185,6 +227,7 @@ def embed_column_in_radiance(
         xr.DataArray(table, dims=("node", band_dim)),
         input_core_dims=[[], ["node"], ["node", band_dim]],
         output_core_dims=[[band_dim]],
+        kwargs={"interpolation": interpolation},
         dask="parallelized",
         output_dtypes=[np.float32],
         dask_gufunc_kwargs={"output_sizes": {band_dim: wavelength.size}},
@@ -247,8 +290,11 @@ def injected_column(
 __all__ = [
     "COLUMN_UNITS",
     "EMBEDDING_VERSION",
+    "INTERPOLATION_BY_VERSION",
     "PPM_METRE_UNITS",
     "ColumnConvention",
+    "Interpolation",
     "embed_column_in_radiance",
     "injected_column",
+    "table_interpolation",
 ]

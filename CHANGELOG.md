@@ -66,6 +66,19 @@ dataset generation.
   draws different pixels than before.
 - Plume-column validation reduces chunked files lazily; plume files are
   NetCDF only.
+- Embedding version `lambert-beer-v2`: the optical depth between absorption
+  table nodes is interpolated with PCHIP instead of linearly. The band optical
+  depth is convex in the path amount (lines saturate), so linear
+  interpolation under-attenuated plumes between nodes. With the default 12
+  log-spaced nodes from 0.01 to 200 ppm, the embedded AVIRIS-4 CH4 signal was
+  up to about 3 % too weak at 0.5 to 64 ppm, with radiance errors of 1 to 3 %
+  in the strongest bands; PCHIP keeps the error below 0.4 %. Tables built by
+  `build_slant_absorption_lut` carry the new version, and
+  `embed_column_in_radiance` interpolates as the table's `embedding_version`
+  prescribes, so `lambert-beer-v1` tables (and the golden fixtures) still
+  embed linearly and bit for bit as before. Unknown versions raise a
+  `ValueError`. `spectra_embedding_version` in the output records the
+  versions of the tables used.
 
 ### Removed
 
